@@ -1,0 +1,240 @@
+import json
+import logging
+from typing import Dict, Any
+
+from arq.connections import RedisSettings
+from app.core.config import settings
+from app.core.database import get_db_session
+from app.models.schema import Contact, ChatSession, Message
+from app.schemas.pydantic_models import (
+    MessageDirectionSchema,
+    MessageSenderTypeSchema,
+    MessageStatusSchema,
+    SessionStatusSchema,
+)
+from sqlalchemy import select, update
+from app.services.object_storage import ObjectStorageService
+import redis.asyncio as redis
+
+logger = logging.getLogger(__name__)
+
+# Reusing Redis Settings from config
+arq_redis_settings = RedisSettings(
+    host=settings.REDIS_HOST,
+    port=settings.REDIS_PORT,
+    password=settings.REDIS_PASSWORD,
+    database=settings.REDIS_DB,
+)
+
+async def startup(ctx: Dict[str, Any]) -> None:
+    ctx["storage_service"] = ObjectStorageService()
+    ctx["redis_pubsub"] = redis.Redis(
+        host=settings.REDIS_HOST,
+        port=settings.REDIS_PORT,
+        password=settings.REDIS_PASSWORD,
+        db=settings.REDIS_DB,
+        decode_responses=True,
+    )
+    logger.info("Inbound Worker startup complete")
+
+async def shutdown(ctx: Dict[str, Any]) -> None:
+    if "redis_pubsub" in ctx:
+        await ctx["redis_pubsub"].close()
+    logger.info("Inbound Worker shutdown complete")
+
+async def process_webhook_payload(
+    ctx: Dict[str, Any],
+    phone_number_id: str,
+    value: Dict[str, Any],
+) -> None:
+    """Task to process webhook payload offloaded from the main API thread."""
+    storage_service: ObjectStorageService = ctx["storage_service"]
+    
+    async with get_db_session(read_only=False) as db:
+        try:
+            # Process contacts metadata
+            contacts_data = value.get("contacts", [])
+            contacts_map = {}
+            for contact_data in contacts_data:
+                wa_id = contact_data.get("wa_id")
+                profile = contact_data.get("profile", {})
+                if wa_id:
+                    contact = await _get_or_create_contact(db, wa_id, profile.get("name"))
+                    contacts_map[wa_id] = contact
+            
+            # Process messages
+            messages_data = value.get("messages", [])
+            for msg_data in messages_data:
+                await _process_incoming_message(
+                    db, phone_number_id, msg_data, contacts_map, storage_service, ctx["redis_pubsub"]
+                )
+            
+            # Process status updates
+            statuses_data = value.get("statuses", [])
+            for status_data in statuses_data:
+                await _process_status_update(db, status_data)
+                
+            await db.commit()
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Failed to process webhook payload: {e}", exc_info=True)
+            raise
+
+
+async def _get_or_create_contact(
+    db, wa_id: str, display_name: str = None
+) -> Contact:
+    result = await db.execute(select(Contact).where(Contact.wa_id == wa_id))
+    contact = result.scalar_one_or_none()
+    
+    if not contact:
+        contact = Contact(
+            wa_id=wa_id,
+            display_name=display_name,
+            phone_number=wa_id,
+        )
+        db.add(contact)
+        await db.flush()
+        
+        session = ChatSession(
+            contact_id=contact.id,
+            status=SessionStatusSchema.PENDING,
+        )
+        db.add(session)
+        await db.flush()
+    
+    return contact
+
+
+async def _process_incoming_message(
+    db,
+    phone_number_id: str,
+    msg_data: Dict[str, Any],
+    contacts_map: Dict[str, Contact],
+    storage_service: ObjectStorageService,
+    redis_pubsub: redis.Redis
+) -> None:
+    from_type = msg_data.get("from")
+    message_id = msg_data.get("id")
+    
+    msg_type = msg_data.get("type", "text")
+    body = None
+    media_url = None
+    media_type = None
+    media_caption = None
+    
+    # Extract media logic
+    if msg_type == "text":
+        body = msg_data.get("text", {}).get("body")
+    elif msg_type in ["image", "video", "audio", "document", "sticker"]:
+        media_data = msg_data.get(msg_type, {})
+        raw_media_url = media_data.get("link") or media_data.get("url")
+        media_mime = media_data.get("mime_type", "application/octet-stream")
+        
+        # Call ObjectStorageService to upload file to MinIO
+        if raw_media_url:
+            try:
+                internal_url = await storage_service.upload_from_url(raw_media_url, media_mime)
+                media_url = internal_url
+            except Exception as e:
+                logger.error(f"Media upload failed: {e}")
+                media_url = raw_media_url
+                
+        media_type = msg_type
+        media_caption = media_data.get("caption")
+        body = media_caption
+    elif msg_type == "location":
+        location = msg_data.get("location", {})
+        body = f"Location: {location.get('latitude')}, {location.get('longitude')}"
+    elif msg_type == "contacts":
+        body = "[Shared contact card]"
+    elif msg_type == "button":
+        body = msg_data.get("button", {}).get("text", "[Button click]")
+    elif msg_type == "interactive":
+        interactive = msg_data.get("interactive", {})
+        if "button_reply" in interactive:
+            body = interactive["button_reply"].get("title", "[Interactive button]")
+        elif "list_reply" in interactive:
+            body = interactive["list_reply"].get("title", "[List selection]")
+        else:
+            body = "[Interactive message]"
+            
+    contact = contacts_map.get(from_type)
+    if not contact:
+        contact = await _get_or_create_contact(db, from_type)
+        contacts_map[from_type] = contact
+        
+    result = await db.execute(
+        select(ChatSession)
+        .where(ChatSession.contact_id == contact.id)
+        .where(ChatSession.status.in_([SessionStatusSchema.OPEN, SessionStatusSchema.PENDING]))
+        .order_by(ChatSession.created_at.desc())
+    )
+    session = result.scalar_one_or_none()
+    
+    if not session:
+        session = ChatSession(contact_id=contact.id, status=SessionStatusSchema.PENDING)
+        db.add(session)
+        await db.flush()
+        
+    # Create the message and mark it as PROCESSED
+    message = Message(
+        session_id=session.id,
+        direction=MessageDirectionSchema.INBOUND,
+        sender_type=MessageSenderTypeSchema.CONTACT,
+        sender_id=contact.id,
+        message_id=message_id,
+        body=body,
+        media_url=media_url,
+        media_type=media_type,
+        media_caption=media_caption,
+        status=MessageStatusSchema.PROCESSED,  # Modified to PROCESSED
+    )
+    db.add(message)
+    
+    from datetime import datetime, timezone
+    session.last_message_at = datetime.now(timezone.utc)
+    
+    # Real-time event pub/sub (using connection pool)
+    await redis_pubsub.publish("realtime-messages", json.dumps({
+        "event_type": "message_received",
+        "payload": {
+            "message_id": str(message.id),
+            "session_id": str(session.id),
+            "contact_wa_id": from_type,
+            "body": body,
+            "media_type": media_type,
+            "media_url": media_url,
+            "direction": "inbound",
+            "status": "processed"
+        }
+    }))
+
+
+async def _process_status_update(db, status_data: Dict[str, Any]) -> None:
+    message_id = status_data.get("id")
+    new_status = status_data.get("status")
+    
+    if not message_id or not new_status:
+        return
+        
+    status_map = {
+        "sent": MessageStatusSchema.SENT,
+        "delivered": MessageStatusSchema.DELIVERED,
+        "read": MessageStatusSchema.READ,
+        "failed": MessageStatusSchema.FAILED,
+    }
+    mapped_status = status_map.get(new_status)
+    if mapped_status:
+        await db.execute(
+            update(Message).where(Message.message_id == message_id).values(status=mapped_status)
+        )
+
+
+class WorkerConfig:
+    redis_settings = arq_redis_settings
+    functions = [process_webhook_payload]
+    on_startup = startup
+    on_shutdown = shutdown
+    max_tries = 3
+    job_timeout = 600

@@ -1,0 +1,839 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ANFA WhatsApp Platform | Open-Source Self-Hosted CRM</title>
+    <meta name="description" content="Deploy a self-hosted, local-first WhatsApp CRM on your own infrastructure with complete data sovereignty. Open-source WhatsApp Business API management platform built with FastAPI, PostgreSQL, and Next.js.">
+    <meta name="keywords" content="WhatsApp CRM, self-hosted, open-source, WhatsApp API, data sovereignty, privacy-first, FastAPI, PostgreSQL">
+    <link rel="canonical" href="https://anfa.tech">
+    
+    <!-- Open Graph -->
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="ANFA WhatsApp Platform | Self-Hosted CRM">
+    <meta property="og:description" content="Self-hosted WhatsApp CRM with complete data sovereignty. Open-source, privacy-first, production-ready.">
+    
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="ANFA WhatsApp Platform">
+    <meta name="twitter:description" content="Self-hosted WhatsApp CRM with complete data sovereignty">
+    
+    <!-- JSON-LD Structured Data -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@graph": [
+            {
+                "@type": "SoftwareApplication",
+                "name": "ANFA WhatsApp Platform",
+                "applicationCategory": "BusinessApplication",
+                "operatingSystem": "Docker",
+                "offers": {
+                    "@type": "Offer",
+                    "price": "0",
+                    "priceCurrency": "USD"
+                },
+                "description": "Self-hosted WhatsApp CRM and API management platform with absolute data sovereignty. Built with FastAPI, PostgreSQL 16, Redis, and Next.js.",
+                "url": "https://anfa.tech",
+                "featureList": [
+                    "Self-hosted deployment",
+                    "Absolute data sovereignty",
+                    "Real-time messaging via SSE",
+                    "Multi-agent shared inbox",
+                    "HMAC-SHA256 webhook security",
+                    "PostgreSQL range partitioning",
+                    "Redis-backed task queue"
+                ],
+                "softwareRequirements": "Docker 24.0+, 4GB RAM",
+                "programmingLanguage": ["Python", "TypeScript"],
+                "license": "https://opensource.org/licenses/MIT"
+            },
+            {
+                "@type": "Organization",
+                "name": "ANFA Technology",
+                "url": "https://anfa.tech",
+                "description": "Building privacy-first, self-hosted communication infrastructure."
+            }
+        ]
+    }
+    </script>
+    
+    <style>
+        :root {
+            --anfa-bg: #0f172a;
+            --anfa-panel: #1e293b;
+            --anfa-border: #334155;
+            --anfa-text: #f1f5f9;
+            --anfa-muted: #94a3b8;
+            --primary-400: #60a5fa;
+            --primary-500: #3b82f6;
+            --primary-600: #2563eb;
+            --primary-700: #1d4ed8;
+            --accent: #10b981;
+        }
+        
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        html, body {
+            background: var(--anfa-bg);
+            color: var(--anfa-text);
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            line-height: 1.6;
+        }
+        
+        a { color: inherit; text-decoration: none; }
+        
+        /* Navigation */
+        .nav {
+            border-bottom: 1px solid var(--anfa-border);
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(12px);
+            position: sticky;
+            top: 0;
+            z-index: 50;
+        }
+        .nav-inner {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 64px;
+        }
+        .nav-logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .logo-icon {
+            width: 32px; height: 32px;
+            border-radius: 8px;
+            background: var(--primary-600);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            color: white;
+            font-size: 14px;
+        }
+        .nav-links { display: flex; align-items: center; gap: 16px; }
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            padding: 8px 20px;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 14px;
+            transition: all 0.2s;
+            cursor: pointer;
+            border: none;
+        }
+        .btn-primary {
+            background: var(--primary-600);
+            color: white;
+        }
+        .btn-primary:hover { background: var(--primary-700); }
+        .btn-secondary {
+            background: transparent;
+            border: 1px solid var(--anfa-border);
+            color: var(--anfa-text);
+        }
+        .btn-secondary:hover { border-color: var(--anfa-muted); }
+        
+        /* Hero */
+        .hero {
+            position: relative;
+            overflow: hidden;
+            padding: 80px 24px 64px;
+        }
+        .hero::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to bottom, rgba(30, 58, 138, 0.2), transparent);
+            pointer-events: none;
+        }
+        .hero-inner {
+            max-width: 896px;
+            margin: 0 auto;
+            text-align: center;
+            position: relative;
+        }
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 16px;
+            border-radius: 9999px;
+            background: rgba(30, 58, 138, 0.5);
+            border: 1px solid rgba(29, 78, 216, 0.5);
+            color: #93c5fd;
+            font-size: 14px;
+            margin-bottom: 32px;
+        }
+        .badge-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--accent);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        h1 {
+            font-size: clamp(2.25rem, 5vw, 3.75rem);
+            font-weight: 700;
+            line-height: 1.1;
+            margin-bottom: 24px;
+        }
+        h1 .highlight { color: var(--primary-400); }
+        .hero-desc {
+            font-size: 18px;
+            color: var(--anfa-muted);
+            max-width: 640px;
+            margin: 0 auto 40px;
+            line-height: 1.7;
+        }
+        .hero-cta { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-bottom: 48px; }
+        .hero-cta .btn { padding: 12px 32px; font-size: 15px; }
+        
+        /* Stats */
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 24px;
+            max-width: 512px;
+            margin: 0 auto;
+        }
+        .stat-value { font-size: 28px; font-weight: 700; color: var(--primary-400); }
+        .stat-label { font-size: 13px; color: var(--anfa-muted); margin-top: 4px; }
+        
+        /* Architecture */
+        .section {
+            padding: 64px 24px;
+            border-top: 1px solid var(--anfa-border);
+        }
+        .section-alt { background: rgba(30, 41, 59, 0.3); }
+        .section-inner { max-width: 1280px; margin: 0 auto; }
+        .section-header { text-align: center; margin-bottom: 48px; }
+        .section-header h2 { font-size: 28px; font-weight: 700; margin-bottom: 12px; }
+        .section-header p { color: var(--anfa-muted); max-width: 512px; margin: 0 auto; }
+        
+        .arch-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 16px;
+            max-width: 960px;
+            margin: 0 auto;
+        }
+        .arch-card {
+            padding: 20px 16px;
+            border-radius: 12px;
+            text-align: center;
+            border: 1px solid;
+        }
+        .arch-card:nth-child(1) { border-color: rgba(34, 197, 94, 0.3); background: rgba(34, 197, 94, 0.05); }
+        .arch-card:nth-child(2) { border-color: rgba(59, 130, 246, 0.3); background: rgba(59, 130, 246, 0.05); }
+        .arch-card:nth-child(3) { border-color: rgba(234, 179, 8, 0.3); background: rgba(234, 179, 8, 0.05); }
+        .arch-card:nth-child(4) { border-color: rgba(168, 85, 247, 0.3); background: rgba(168, 85, 247, 0.05); }
+        .arch-card:nth-child(5) { border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.05); }
+        .arch-name { font-weight: 600; font-size: 14px; }
+        .arch-role { font-size: 12px; color: var(--anfa-muted); margin-top: 4px; }
+        .arch-port { font-size: 11px; color: var(--anfa-muted); font-family: monospace; margin-top: 6px; }
+        
+        /* Features */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px;
+        }
+        .feature-card {
+            padding: 24px;
+            border-radius: 12px;
+            border: 1px solid var(--anfa-border);
+            background: rgba(30, 41, 59, 0.5);
+            transition: all 0.2s;
+        }
+        .feature-card:hover { background: var(--anfa-panel); }
+        .feature-icon {
+            width: 48px; height: 48px;
+            border-radius: 10px;
+            background: rgba(30, 58, 138, 0.5);
+            border: 1px solid rgba(29, 78, 216, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--primary-400);
+            margin-bottom: 16px;
+        }
+        .feature-card h3 { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+        .feature-card p { font-size: 14px; color: var(--anfa-muted); line-height: 1.6; }
+        
+        /* Tech Stack */
+        .tech-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            max-width: 768px;
+            margin: 0 auto;
+        }
+        .tech-card {
+            padding: 16px;
+            border-radius: 12px;
+            border: 1px solid var(--anfa-border);
+            background: var(--anfa-bg);
+            text-align: center;
+            transition: all 0.2s;
+        }
+        .tech-card:hover { border-color: rgba(37, 99, 235, 0.4); }
+        .tech-name { font-size: 14px; font-weight: 600; }
+        .tech-cat { font-size: 11px; color: var(--primary-400); margin-top: 4px; }
+        .tech-desc { font-size: 12px; color: var(--anfa-muted); margin-top: 4px; }
+        
+        /* Security */
+        .security-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 48px;
+            align-items: center;
+        }
+        .security-list { list-style: none; }
+        .security-list li {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 12px;
+            font-size: 14px;
+        }
+        .security-list svg {
+            width: 20px; height: 20px;
+            color: var(--accent);
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+        .code-window {
+            border-radius: 12px;
+            border: 1px solid var(--anfa-border);
+            background: var(--anfa-panel);
+            overflow: hidden;
+        }
+        .code-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--anfa-border);
+            background: var(--anfa-bg);
+        }
+        .code-dot { width: 12px; height: 12px; border-radius: 50%; }
+        .code-title { font-size: 12px; color: var(--anfa-muted); font-family: monospace; margin-left: 8px; }
+        pre {
+            padding: 20px;
+            font-size: 13px;
+            line-height: 1.7;
+            color: var(--anfa-muted);
+            overflow-x: auto;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+        }
+        
+        /* CTA */
+        .cta-box {
+            padding: 48px;
+            border-radius: 20px;
+            border: 1px solid rgba(29, 78, 216, 0.4);
+            background: linear-gradient(to bottom, rgba(30, 58, 138, 0.3), rgba(30, 41, 59, 0.5));
+            text-align: center;
+        }
+        .cta-box h2 { font-size: 28px; font-weight: 700; margin-bottom: 16px; }
+        .cta-box p { color: var(--anfa-muted); margin-bottom: 32px; max-width: 512px; margin-left: auto; margin-right: auto; }
+        .cmd-box {
+            display: inline-block;
+            background: var(--anfa-bg);
+            padding: 12px 24px;
+            border-radius: 12px;
+            border: 1px solid var(--anfa-border);
+            font-family: monospace;
+            font-size: 14px;
+            color: var(--anfa-muted);
+        }
+        
+        /* Footer */
+        footer {
+            border-top: 1px solid var(--anfa-border);
+            padding: 32px 24px;
+        }
+        .footer-inner {
+            max-width: 1280px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .footer-links { display: flex; gap: 24px; }
+        .footer-links a { color: var(--anfa-muted); font-size: 14px; transition: color 0.2s; }
+        .footer-links a:hover { color: var(--anfa-text); }
+        
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .features-grid { grid-template-columns: repeat(2, 1fr); }
+            .arch-grid { grid-template-columns: repeat(3, 1fr); }
+            .security-grid { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 768px) {
+            .stats { grid-template-columns: repeat(2, 1fr); }
+            .features-grid { grid-template-columns: 1fr; }
+            .arch-grid { grid-template-columns: repeat(2, 1fr); }
+            .tech-grid { grid-template-columns: repeat(2, 1fr); }
+            .footer-inner { flex-direction: column; gap: 16px; }
+            .cta-box { padding: 32px 24px; }
+        }
+        
+        /* Dashboard Preview */
+        .dashboard-preview {
+            margin: 48px auto;
+            max-width: 1100px;
+            border-radius: 16px;
+            border: 1px solid var(--anfa-border);
+            overflow: hidden;
+            background: var(--anfa-panel);
+        }
+        .dash-header {
+            display: flex;
+            align-items: center;
+            padding: 12px 20px;
+            border-bottom: 1px solid var(--anfa-border);
+            background: rgba(15, 23, 42, 0.6);
+            gap: 12px;
+        }
+        .dash-header-dot { width: 12px; height: 12px; border-radius: 50%; }
+        .dash-body {
+            display: grid;
+            grid-template-columns: 240px 1fr 200px;
+            min-height: 480px;
+        }
+        .dash-sidebar {
+            border-right: 1px solid var(--anfa-border);
+            padding: 12px;
+        }
+        .dash-chat {
+            display: flex;
+            flex-direction: column;
+        }
+        .dash-chat-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--anfa-border);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .dash-messages {
+            flex: 1;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .msg-in, .msg-out {
+            max-width: 70%;
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .msg-in {
+            align-self: flex-start;
+            background: var(--anfa-panel);
+            border: 1px solid var(--anfa-border);
+            border-radius: 12px 12px 12px 4px;
+        }
+        .msg-out {
+            align-self: flex-end;
+            background: rgba(30, 58, 138, 0.4);
+            border: 1px solid rgba(37, 99, 235, 0.4);
+            border-radius: 12px 12px 4px 12px;
+        }
+        .dash-input {
+            padding: 12px 16px;
+            border-top: 1px solid var(--anfa-border);
+            display: flex;
+            gap: 8px;
+        }
+        .dash-input input {
+            flex: 1;
+            background: var(--anfa-bg);
+            border: 1px solid var(--anfa-border);
+            border-radius: 10px;
+            padding: 8px 14px;
+            color: var(--anfa-text);
+            font-size: 13px;
+        }
+        .dash-rightbar {
+            border-left: 1px solid var(--anfa-border);
+            padding: 16px;
+        }
+        .session-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 4px;
+            font-size: 13px;
+        }
+        .session-item:hover { background: rgba(30, 41, 59, 0.8); }
+        .session-avatar {
+            width: 32px; height: 32px;
+            border-radius: 50%;
+            background: var(--anfa-border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--anfa-muted);
+        }
+        .session-name { font-weight: 500; }
+        .session-preview { font-size: 11px; color: var(--anfa-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .status-badge {
+            display: inline-flex;
+            padding: 2px 8px;
+            border-radius: 9999px;
+            font-size: 10px;
+            font-weight: 500;
+        }
+        .status-open { background: rgba(34, 197, 94, 0.15); color: #4ade80; }
+        .status-pending { background: rgba(234, 179, 8, 0.15); color: #facc15; }
+        .connection-live {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #4ade80;
+        }
+        .live-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #22c55e;
+            box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
+            animation: livePulse 2s infinite;
+        }
+        @keyframes livePulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.15); }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="nav">
+        <div class="nav-inner">
+            <div class="nav-logo">
+                <div class="logo-icon">A</div>
+                <span style="font-weight: 600;">ANFA Platform</span>
+            </div>
+            <div class="nav-links">
+                <a href="https://github.com/anfa-tech/anfa-whatsapp-platform" target="_blank" rel="noopener" style="color: var(--anfa-muted);">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+                </a>
+                <a href="/dashboard-preview" class="btn btn-primary">Dashboard Preview</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-inner">
+            <div class="badge">
+                <span class="badge-dot"></span>
+                Open-Source & Self-Hosted
+            </div>
+            <h1>WhatsApp CRM with <span class="highlight">Absolute Data Sovereignty</span></h1>
+            <p class="hero-desc">
+                Deploy a fully self-hosted WhatsApp Business API management platform on your own 
+                infrastructure. No data ever leaves your servers. Open-source, production-ready, 
+                and built for privacy-first organizations.
+            </p>
+            <div class="hero-cta">
+                <a href="/dashboard-preview" class="btn btn-primary">Dashboard Preview</a>
+                <a href="https://docs.anfa.tech" target="_blank" class="btn btn-secondary">Documentation</a>
+            </div>
+            <div class="stats">
+                <div><div class="stat-value">5</div><div class="stat-label">Docker Services</div></div>
+                <div><div class="stat-value">500+</div><div class="stat-label">Messages/Second</div></div>
+                <div><div class="stat-value">100%</div><div class="stat-label">Data Sovereignty</div></div>
+                <div><div class="stat-value">99.9%</div><div class="stat-label">Uptime SLA</div></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Dashboard Preview -->
+    <section class="section section-alt">
+        <div class="section-inner">
+            <div class="section-header">
+                <h2>Live Dashboard Preview</h2>
+                <p>Real-time messaging interface with SSE streaming, multi-agent support, and session management</p>
+            </div>
+            <div class="dashboard-preview">
+                <div class="dash-header">
+                    <div class="dash-header-dot" style="background:#ef4444;"></div>
+                    <div class="dash-header-dot" style="background:#f59e0b;"></div>
+                    <div class="dash-header-dot" style="background:#22c55e;"></div>
+                    <span style="font-size:12px;color:var(--anfa-muted);margin-left:4px;">ANFA Dashboard — Real-Time Chat</span>
+                    <div style="margin-left:auto;" class="connection-live">
+                        <span class="live-dot"></span>
+                        <span>SSE Connected</span>
+                    </div>
+                </div>
+                <div class="dash-body">
+                    <div class="dash-sidebar">
+                        <div class="session-item" style="background:rgba(30,41,59,0.8);">
+                            <div class="session-avatar">J</div>
+                            <div style="flex:1;min-width:0;">
+                                <div class="session-name">John Smith</div>
+                                <div class="session-preview">Hi, I have a question...</div>
+                            </div>
+                            <span class="status-badge status-open" style="flex-shrink:0;">open</span>
+                        </div>
+                        <div class="session-item">
+                            <div class="session-avatar">S</div>
+                            <div style="flex:1;min-width:0;">
+                                <div class="session-name">Sarah Johnson</div>
+                                <div class="session-preview">Thank you for your help!</div>
+                            </div>
+                            <span class="status-badge status-pending" style="flex-shrink:0;">pending</span>
+                        </div>
+                        <div class="session-item">
+                            <div class="session-avatar">M</div>
+                            <div style="flex:1;min-width:0;">
+                                <div class="session-name">Michael Chen</div>
+                                <div class="session-preview">When will my package...</div>
+                            </div>
+                            <span class="status-badge status-open" style="flex-shrink:0;">open</span>
+                        </div>
+                    </div>
+                    <div class="dash-chat">
+                        <div class="dash-chat-header">
+                            <div class="session-avatar" style="width:28px;height:28px;font-size:11px;">J</div>
+                            <div>
+                                <div style="font-size:13px;font-weight:500;">John Smith</div>
+                                <div style="font-size:11px;color:var(--anfa-muted);">1234567890</div>
+                            </div>
+                            <span class="status-badge status-open" style="margin-left:auto;">open</span>
+                        </div>
+                        <div class="dash-messages">
+                            <div class="msg-out">Hello! How can I help you today?</div>
+                            <div class="msg-in">Hi, I have a question about my order #12345</div>
+                            <div class="msg-out">Of course! Let me look that up for you.</div>
+                            <div class="msg-out">Your order is scheduled for delivery tomorrow between 2-4 PM.</div>
+                            <div class="msg-in">Great, thank you! Will someone call me before delivery?</div>
+                            <div class="msg-out">Yes, the delivery driver will call you 30 minutes before arrival.</div>
+                        </div>
+                        <div class="dash-input">
+                            <input type="text" placeholder="Type a message..." readonly>
+                            <button class="btn btn-primary" style="padding:8px 14px;">Send</button>
+                        </div>
+                    </div>
+                    <div class="dash-rightbar">
+                        <div style="text-align:center;margin-bottom:16px;">
+                            <div class="session-avatar" style="width:48px;height:48px;font-size:18px;margin:0 auto 8px;">J</div>
+                            <div style="font-size:13px;font-weight:500;">John Smith</div>
+                            <div style="font-size:11px;color:var(--anfa-muted);">1234567890</div>
+                        </div>
+                        <div style="border-top:1px solid var(--anfa-border);padding-top:12px;">
+                            <div style="font-size:10px;color:var(--anfa-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">Session Info</div>
+                            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px;">
+                                <span style="color:var(--anfa-muted);">Status</span>
+                                <span class="status-badge status-open">open</span>
+                            </div>
+                            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px;">
+                                <span style="color:var(--anfa-muted);">Messages</span>
+                                <span>6</span>
+                            </div>
+                            <div style="display:flex;justify-content:space-between;font-size:12px;">
+                                <span style="color:var(--anfa-muted);">Assigned</span>
+                                <span>Alice</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Architecture -->
+    <section class="section section-alt">
+        <div class="section-inner">
+            <div class="section-header">
+                <h2>Containerized Architecture</h2>
+                <p>Five services orchestrated via Docker Compose with isolated internal networking</p>
+            </div>
+            <div class="arch-grid">
+                <div class="arch-card"><div class="arch-name">Nginx</div><div class="arch-role">Reverse Proxy</div><div class="arch-port">80 / 443</div></div>
+                <div class="arch-card"><div class="arch-name">Next.js</div><div class="arch-role">Frontend UI</div><div class="arch-port">3000</div></div>
+                <div class="arch-card"><div class="arch-name">FastAPI</div><div class="arch-role">Backend API</div><div class="arch-port">4000</div></div>
+                <div class="arch-card"><div class="arch-name">PostgreSQL 16</div><div class="arch-role">Database</div><div class="arch-port">5432</div></div>
+                <div class="arch-card"><div class="arch-name">Redis 7</div><div class="arch-role">Cache / Queue</div><div class="arch-port">6379</div></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features -->
+    <section class="section">
+        <div class="section-inner">
+            <div class="section-header">
+                <h2>Built for Production Workloads</h2>
+                <p>Every component is designed with security, scalability, and operational excellence in mind</p>
+            </div>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                    </div>
+                    <h3>Absolute Data Sovereignty</h3>
+                    <p>All messages, contacts, and metadata stay on your servers. No third-party access, no data mining, no external dependencies.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                    </div>
+                    <h3>Real-Time Streaming</h3>
+                    <p>Server-Sent Events (SSE) deliver incoming messages to your dashboard instantly. No polling, no delays, no missed messages.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                    </div>
+                    <h3>Enterprise Security</h3>
+                    <p>HMAC-SHA256 webhook verification, JWT authentication, bcrypt password hashing, and constant-time signature validation.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                    </div>
+                    <h3>Multi-Agent Inbox</h3>
+                    <p>Collaborative shared inbox with session assignment, status tracking, priority scoring, and agent workload balancing.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    </div>
+                    <h3>Smart Rate Limiting</h3>
+                    <p>Sliding-window token bucket rate limiting prevents Meta API throttling. Automatic 429 handling with dynamic backoff.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/></svg>
+                    </div>
+                    <h3>Partitioned Database</h3>
+                    <p>PostgreSQL 16 with native range partitioning by month. Automatic partition management via pg_partman with 12-month retention.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Tech Stack -->
+    <section class="section section-alt">
+        <div class="section-inner">
+            <div class="section-header">
+                <h2>Modern Tech Stack</h2>
+                <p>Battle-tested technologies chosen for performance, security, and developer experience</p>
+            </div>
+            <div class="tech-grid">
+                <div class="tech-card"><div class="tech-name">FastAPI</div><div class="tech-cat">Backend</div><div class="tech-desc">Async Python web framework</div></div>
+                <div class="tech-card"><div class="tech-name">SQLAlchemy 2.0</div><div class="tech-cat">ORM</div><div class="tech-desc">Async database operations</div></div>
+                <div class="tech-card"><div class="tech-name">PostgreSQL 16</div><div class="tech-cat">Database</div><div class="tech-desc">Range-partitioned messages</div></div>
+                <div class="tech-card"><div class="tech-name">Redis 7</div><div class="tech-cat">Cache / Queue</div><div class="tech-desc">Pub/sub, rate limiting</div></div>
+                <div class="tech-card"><div class="tech-name">arq</div><div class="tech-cat">Workers</div><div class="tech-desc">Async job queue</div></div>
+                <div class="tech-card"><div class="tech-name">Next.js 14</div><div class="tech-cat">Frontend</div><div class="tech-desc">App Router, SSR, streaming</div></div>
+                <div class="tech-card"><div class="tech-name">Tailwind CSS</div><div class="tech-cat">Styling</div><div class="tech-desc">Utility-first CSS</div></div>
+                <div class="tech-card"><div class="tech-name">Nginx</div><div class="tech-cat">Ingress</div><div class="tech-desc">HTTP/2, SSE optimization</div></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Security -->
+    <section class="section">
+        <div class="section-inner">
+            <div class="security-grid">
+                <div>
+                    <h2 style="font-size:28px;font-weight:700;margin-bottom:16px;">Security-First Design</h2>
+                    <p style="color:var(--anfa-muted);margin-bottom:24px;line-height:1.7;">
+                        Every security-sensitive function includes inline rationale explaining its purpose. 
+                        From HMAC-SHA256 webhook verification to constant-time signature comparison, 
+                        we prioritize defense in depth.
+                    </p>
+                    <ul class="security-list">
+                        <li><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>HMAC-SHA256 webhook signature verification</li>
+                        <li><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>Constant-time comparison prevents timing attacks</li>
+                        <li><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>Dynamic credential lookup per phone_number_id</li>
+                        <li><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>No Docker socket mounting required</li>
+                        <li><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>bcrypt password hashing with automatic salting</li>
+                        <li><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>JWT tokens with configurable expiration</li>
+                        <li><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>Non-privileged container execution</li>
+                    </ul>
+                </div>
+                <div class="code-window">
+                    <div class="code-header">
+                        <div class="code-dot" style="background:#ef4444;"></div>
+                        <div class="code-dot" style="background:#f59e0b;"></div>
+                        <div class="code-dot" style="background:#22c55e;"></div>
+                        <span class="code-title">backend/app/core/security.py</span>
+                    </div>
+                    <pre># Constant-time comparison prevents
+# timing side-channel attacks
+if not hmac.compare_digest(
+    computed_sig, 
+    received_sig
+):
+    raise HTTPException(
+        status_code=401,
+        detail="Signature verification failed"
+    )
+
+# Security: Read raw body bytes to preserve
+# Unicode and emoji encoding
+raw_body: bytes = await request.body()
+
+# Dynamic credential lookup per phone_number_id
+# eliminates docker.sock mounting risk
+app_secret = await fetch_meta_app_secret(
+    phone_number_id, redis_client
+)</pre>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="section">
+        <div class="section-inner" style="max-width:768px;">
+            <div class="cta-box">
+                <h2>Ready to Take Control of Your Data?</h2>
+                <p>Deploy the entire platform with a single command. Your data stays on your servers, under your control, always.</p>
+                <div style="display:flex;gap:16px;justify-content:center;align-items:center;flex-wrap:wrap;">
+                    <a href="/dashboard-preview" class="btn btn-primary" style="padding:12px 32px;">Dashboard Preview</a>
+                    <span class="cmd-box">docker compose up -d</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="footer-inner">
+            <div style="display:flex;align-items:center;gap:12px;">
+                <div class="logo-icon" style="width:24px;height:24px;font-size:10px;">A</div>
+                <span style="font-size:14px;color:var(--anfa-muted);">ANFA Technology &copy; 2025</span>
+            </div>
+            <div class="footer-links">
+                <a href="https://docs.anfa.tech">Docs</a>
+                <a href="https://github.com/anfa-tech/anfa-whatsapp-platform">GitHub</a>
+                <a href="llms.txt">LLMs</a>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,51 @@
+# ANFA WhatsApp Platform
+
+ANFA is a self-hosted, open-source WhatsApp CRM and API management platform for complete data sovereignty. Built with Python (FastAPI), arq, Next.js, and PostgreSQL.
+
+## Core Benefits
+
+- **Absolute Data Sovereignty**: No customer records, payloads, or message logs ever touch third-party servers.
+- **Local-First Architecture**: Runs entirely on your own isolated infrastructure.
+- **High Performance**: FastAPI and Redis handle massive broadcast loads with low memory usage.
+- **Enterprise Security**: HMAC-SHA256 webhook verification, JWT authentication, constant-time signature validation.
+
+## Tech Stack
+
+- **Backend**: FastAPI, SQLAlchemy 2.0 (asyncpg), arq task queue
+- **Database**: PostgreSQL 16 range-partitioned monthly (pg_partman)
+- **Caching/Broker**: Redis (queues, settings cache, dynamic rate limits)
+- **Ingress**: Nginx (configured statically for HTTP/2 and SSE proxy optimization)
+- **Frontend**: Next.js (App Router, Tailwind CSS, TypeScript)
+- **Real-time**: Server-Sent Events (SSE) over HTTP/2
+
+## Quick Start
+
+1. Configure your .env settings using the provided template.
+2. Run the platform with exactly one command: `docker compose up -d`.
+3. Access the dashboard at `http://localhost`.
+
+## API Endpoints
+
+- `GET /api/health` - Health check
+- `POST /api/webhooks/{phone_number_id}` - Webhook ingress for WhatsApp events
+- `GET /api/webhooks/verify/{phone_number_id}` - Webhook verification endpoint
+- `GET /api/chats/stream` - SSE real-time message stream
+- `GET /api/settings` - Retrieve system settings
+- `POST /api/settings` - Update system settings
+- `POST /api/messages/send` - Send outbound message (queued via arq)
+- `GET /api/sessions` - List chat sessions
+- `GET /api/sessions/{session_id}/messages` - Get session messages
+
+## Data Architecture
+
+- **Messages table**: Range-partitioned by month using native PostgreSQL partitioning via pg_partman
+- **Composite primary key**: `(id, created_at)` required for partition pruning
+- **Auto-retention**: 12-month retention policy with automatic partition creation
+
+## Security Model
+
+- Webhook signatures validated using HMAC-SHA256 with constant-time comparison
+- Secrets retrieved dynamically from Redis cache per phone_number_id
+- No Docker socket mounting required
+- All containers run with no-new-privileges
+- Database and Redis only accessible within internal Docker network

@@ -1,0 +1,49 @@
+# /backend/requirements.txt
+# ANFA FastAPI Backend Dependencies
+
+# Web Framework & ASGI Server
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+
+# Database & ORM
+sqlalchemy[asyncio]==2.0.25
+asyncpg==0.29.0
+alembic==1.13.1
+
+# Redis & Caching (async Redis client with pub/sub support)
+redis==5.0.1
+
+# Task Queue
+arq==0.25.0
+
+# HTTP Client
+httpx==0.26.0
+
+# Security & Authentication
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.6
+
+# Configuration Management
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# Environment
+python-dotenv==1.0.0
+
+# Data Validation
+email-validator==2.1.0
+
+# JSON Processing
+orjson>=3.11.0
+
+# Background Tasks & Scheduling
+croniter==2.0.1
+
+# Observability and Monitoring
+structlog==24.1.0
+prometheus-fastapi-instrumentator==7.0.0
+opentelemetry-sdk==1.22.0
+
+# MinIO / S3 Integration
+aiobotocore==2.11.0
