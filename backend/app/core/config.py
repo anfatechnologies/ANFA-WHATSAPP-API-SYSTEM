@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     APP_NAME: str = Field(default="ANFA WhatsApp Platform")
     APP_VERSION: str = Field(default="1.0.0")
     DEBUG: bool = Field(default=False)
+    # P1 Fix: Explicit frontend URL for production CORS allow-list
+    FRONTEND_URL: Optional[str] = Field(
+        default=None,
+        description="Frontend origin URL for CORS (e.g. https://crm.yourdomain.com). Required in production."
+    )
     
     # =============================================================================
     # DATABASE CONFIGURATION

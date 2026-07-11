@@ -11,9 +11,12 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from app.core.config import settings
-from app.core.database import init_database, close_database
+from app.core.database import init_database, close_database, db_manager
 from app.api.webhooks import router as webhooks_router
 from app.api.settings import router as settings_router
 from app.api.stream import router as stream_router
@@ -129,6 +132,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 # =============================================================================
+# RATE LIMITING (P1 Fix)
+# =============================================================================
+# slowapi provides per-IP rate limiting backed by in-memory state.
+# Webhook endpoints are excluded (Meta IPs only), but API endpoints are limited.
+limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
+
+# =============================================================================
 # FASTAPI APPLICATION INSTANCE
 # =============================================================================
 
@@ -142,6 +152,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # =============================================================================
 # MIDDLEWARE & OBSERVABILITY
 # =============================================================================
@@ -152,10 +165,15 @@ if settings.ENABLE_METRICS:
 if settings.ENABLE_TRACING:
     FastAPIInstrumentor.instrument_app(app)
 
-# CORS - Configure for production deployment
+# P1 Fix: CORS — uses explicit FRONTEND_URL instead of allow_origins=["*"] or []
+# allow_origins=[] in production meant frontend couldn't call the API at all.
+allowed_origins = (
+    ["*"] if settings.DEBUG
+    else [settings.FRONTEND_URL] if settings.FRONTEND_URL else []
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.DEBUG else [],  # Restrict in production
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -236,36 +254,23 @@ app.include_router(stream_router, prefix="/api")
 
 @app.get("/api/health", tags=["Health"])
 async def health_check():
-    """Health check endpoint for Docker and load balancer health probes.
-    
-    Returns service status and connectivity information.
-    """
+    """Health check endpoint for Docker and load balancer health probes."""
     from datetime import datetime, timezone
+    from sqlalchemy import text
     
     services = {"api": "up"}
     
-    # Check database
+    # P0 Fix: Use db_manager.primary_engine (was incorrectly referencing _engine)
     try:
-        from app.core.database import _engine
-        from sqlalchemy import text
-        async with _engine.connect() as conn:
+        async with db_manager.primary_engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
         services["database"] = "up"
     except Exception:
         services["database"] = "down"
     
-    # Check Redis
+    # Use shared pool from app.state (FIX #1 — no new connections)
     try:
-        import redis.asyncio as redis
-        redis_client = redis.Redis(
-            host=settings.REDIS_HOST,
-            port=settings.REDIS_PORT,
-            password=settings.REDIS_PASSWORD,
-            db=settings.REDIS_DB,
-            socket_connect_timeout=2,
-        )
-        await redis_client.ping()
-        await redis_client.close()
+        await app.state.redis_pool.ping()
         services["redis"] = "up"
     except Exception:
         services["redis"] = "down"
@@ -282,14 +287,11 @@ async def health_check():
 
 @app.get("/api/ready", tags=["Health"])
 async def readiness_check():
-    """Readiness probe for Kubernetes-style deployments.
-    
-    Returns 200 only when all dependencies are ready to serve traffic.
-    """
+    """Readiness probe — returns 200 only when all dependencies are ready."""
+    from sqlalchemy import text
     try:
-        from app.core.database import _engine
-        from sqlalchemy import text
-        async with _engine.connect() as conn:
+        # P0 Fix: correct reference to db_manager.primary_engine
+        async with db_manager.primary_engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
         return {"ready": True}
     except Exception:
