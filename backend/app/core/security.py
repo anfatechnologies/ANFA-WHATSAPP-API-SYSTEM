@@ -13,6 +13,9 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 import redis.asyncio as redis
+import os
+import base64
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from app.core.config import settings
 
@@ -41,6 +44,35 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     internally to prevent timing side-channel attacks.
     """
     return _pwd_context.verify(plain_password, hashed_password)
+
+
+# =============================================================================
+# REDIS SECRET ENCRYPTION (AES-256-GCM)
+# =============================================================================
+
+def encrypt_redis_secret(secret: str) -> str:
+    key_bytes = settings.ENCRYPTION_MASTER_KEY.encode('utf-8')[:32]
+    if len(key_bytes) < 32:
+        key_bytes = key_bytes.ljust(32, b'\0')
+    aesgcm = AESGCM(key_bytes)
+    nonce = os.urandom(12)
+    ciphertext = aesgcm.encrypt(nonce, secret.encode('utf-8'), None)
+    return base64.b64encode(nonce + ciphertext).decode('utf-8')
+
+def decrypt_redis_secret(encrypted_secret: str) -> str:
+    if not encrypted_secret:
+        return encrypted_secret
+    try:
+        key_bytes = settings.ENCRYPTION_MASTER_KEY.encode('utf-8')[:32]
+        if len(key_bytes) < 32:
+            key_bytes = key_bytes.ljust(32, b'\0')
+        aesgcm = AESGCM(key_bytes)
+        data = base64.b64decode(encrypted_secret.encode('utf-8'))
+        nonce, ciphertext = data[:12], data[12:]
+        return aesgcm.decrypt(nonce, ciphertext, None).decode('utf-8')
+    except Exception:
+        # Fallback for old unencrypted secrets during migration
+        return encrypted_secret
 
 
 # =============================================================================
@@ -141,8 +173,8 @@ async def fetch_meta_credentials(phone_number_id: str, redis_client: redis.Redis
         )
     
     return {
-        "app_secret": app_secret.decode("utf-8"),
-        "verify_token": verify_token.decode("utf-8"),
+        "app_secret": decrypt_redis_secret(app_secret.decode("utf-8")),
+        "verify_token": decrypt_redis_secret(verify_token.decode("utf-8")),
     }
 
 

@@ -13,6 +13,11 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import DeclarativeBase, relationship, Mapped, mapped_column
 import enum
+import os
+import base64
+from sqlalchemy.types import TypeDecorator
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from app.core.config import settings
 
 
 # =============================================================================
@@ -22,6 +27,36 @@ import enum
 class Base(DeclarativeBase):
     """Base class for all declarative models."""
     pass
+
+
+class EncryptedText(TypeDecorator):
+    """Application-Level Encryption (ALE) using AES-256-GCM."""
+    impl = Text
+    cache_ok = True
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        key_bytes = settings.ENCRYPTION_MASTER_KEY.encode('utf-8')[:32]
+        if len(key_bytes) < 32:
+            key_bytes = key_bytes.ljust(32, b'\0')
+        self.aesgcm = AESGCM(key_bytes)
+
+    def process_bind_param(self, value, dialect):
+        if value is not None:
+            nonce = os.urandom(12)
+            ciphertext = self.aesgcm.encrypt(nonce, value.encode('utf-8'), None)
+            return base64.b64encode(nonce + ciphertext).decode('utf-8')
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None:
+            try:
+                data = base64.b64decode(value.encode('utf-8'))
+                nonce, ciphertext = data[:12], data[12:]
+                return self.aesgcm.decrypt(nonce, ciphertext, None).decode('utf-8')
+            except Exception:
+                return value  # Fallback for plain text during migration transition
+        return value
 
 
 # =============================================================================
@@ -290,8 +325,8 @@ class Message(Base):
         comment="Meta WhatsApp message ID (wamid.xxx) for deduplication"
     )
     body: Mapped[Optional[str]] = mapped_column(
-        Text, nullable=True,
-        comment="Message text content"
+        EncryptedText, nullable=True,
+        comment="Message text content (AES-256-GCM Encrypted at rest)"
     )
     media_url: Mapped[Optional[str]] = mapped_column(
         Text, nullable=True,

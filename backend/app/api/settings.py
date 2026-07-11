@@ -12,7 +12,7 @@ import redis.asyncio as redis
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.security import verify_access_token
+from app.core.security import verify_access_token, encrypt_redis_secret, decrypt_redis_secret
 from app.schemas.pydantic_models import (
     SystemSettings,
     MetaCredentialsSettings,
@@ -113,10 +113,10 @@ async def store_meta_credentials(
         prefix = f"settings:meta_credentials:{credentials.phone_number_id}"
         
         pipeline = redis_client.pipeline()
-        pipeline.set(f"{prefix}:verify_token", credentials.verify_token)
-        pipeline.set(f"{prefix}:app_secret", credentials.app_secret)
+        pipeline.set(f"{prefix}:verify_token", encrypt_redis_secret(credentials.verify_token))
+        pipeline.set(f"{prefix}:app_secret", encrypt_redis_secret(credentials.app_secret))
         if credentials.access_token:
-            pipeline.set(f"{prefix}:access_token", credentials.access_token)
+            pipeline.set(f"{prefix}:access_token", encrypt_redis_secret(credentials.access_token))
         await pipeline.execute()
         
         logger.info(
@@ -143,6 +143,9 @@ async def get_meta_credentials(
         prefix = f"settings:meta_credentials:{phone_number_id}"
         
         verify_token = await redis_client.get(f"{prefix}:verify_token")
+        if verify_token:
+            verify_token = decrypt_redis_secret(verify_token)
+            
         has_app_secret = await redis_client.exists(f"{prefix}:app_secret")
         has_access_token = await redis_client.exists(f"{prefix}:access_token")
         
@@ -227,9 +230,9 @@ async def create_phone_number_config(
     try:
         prefix = f"settings:meta_credentials:{config.phone_number_id}"
         pipeline = redis_client.pipeline()
-        pipeline.set(f"{prefix}:verify_token", config.webhook_verify_token)
-        pipeline.set(f"{prefix}:app_secret", config.app_secret)
-        pipeline.set(f"{prefix}:access_token", config.access_token)
+        pipeline.set(f"{prefix}:verify_token", encrypt_redis_secret(config.webhook_verify_token))
+        pipeline.set(f"{prefix}:app_secret", encrypt_redis_secret(config.app_secret))
+        pipeline.set(f"{prefix}:access_token", encrypt_redis_secret(config.access_token))
         await pipeline.execute()
     finally:
         await redis_client.close()

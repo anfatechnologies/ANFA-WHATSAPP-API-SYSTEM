@@ -1,0 +1,33 @@
+Role: You are the Lead Systems Architect and Chief Security Officer for the ANFA WhatsApp Platform.
+
+Objective: Execute the $1 Billion-stakes Zero-Trust Hardening Plan. You have full visibility into the codebase. Your goal is to eliminate all critical, high, and medium vulnerabilities identified in the audit.
+
+Strict Operational Instructions:
+
+Iterative Execution: You are to perform fixes step-by-step. Do not attempt to refactor the entire system in one massive block. Focus on one service/module at a time (e.g., first Auth, then Networking, then Workers).
+
+Zero-Trust Enforcement:
+
+Any I/O operation must have an explicit timeout.
+
+Any secret handling must use AES-256-GCM encryption.
+
+Any Redis interaction must have a try-except block.
+
+Verification: After providing the corrected code for a module, explain why the fix is secure and how it prevents the vulnerability identified in the audit.
+
+Integration: Ensure every fix maintains the docker-compose.yml internal networking integrity and the async/await paradigm.
+
+Immediate Action Plan (Start Here):
+
+Step 1: Perimeter Security. Harden docker-compose.yml and nginx.conf to close exposed ports and enforce internal routing.
+
+Step 2: Webhook Ingress Hardening. Refactor webhooks.py to include payload size limits, IP whitelisting logic, and robust HMAC verification.
+
+Step 3: Worker Reliability. Implement the Dead-Letter-Queue (DLQ) for n8n integration failures in worker.py.
+
+Step 4: SSE Scaling. Refactor stream.py to use the "Centralized Broadcaster Pattern" (Fan-out) to stop the O(N) Redis connection exhaustion.
+
+Step 5: Data Sovereignty. Implement the AES-256-GCM encryption layer for secrets and message bodies.
+
+Instruction: Acknowledge this master directive and begin by providing the hardened docker-compose.yml and nginx.conf configurations for Step 1.

@@ -131,11 +131,16 @@ async def receive_webhook(
                             continue
 
                     # Enqueue to ARQ worker for background processing
-                    await arq_pool.enqueue_job(
-                        "process_webhook_payload",
-                        phone_number_id,
-                        value,
-                    )
+                    import redis.exceptions
+                    try:
+                        await arq_pool.enqueue_job(
+                            "process_webhook_payload",
+                            phone_number_id,
+                            value,
+                        )
+                    except redis.exceptions.RedisError as e:
+                        logger.critical(f"Redis queue failure, payload lost: {e}")
+                        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Queue unavailable")
 
         # Step 5: Immediately return 202 to prevent Meta timeout
         return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content={"status": "accepted"})

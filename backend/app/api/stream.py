@@ -22,47 +22,79 @@ logger = logging.getLogger(__name__)
 # SSE EVENT GENERATOR
 # =============================================================================
 
+class Broadcaster:
+    def __init__(self):
+        self.listen_task: Optional[asyncio.Task] = None
+        self.queues: Dict[str, asyncio.Queue] = {}
+
+    async def add_client(self, client_id: str) -> asyncio.Queue:
+        q = asyncio.Queue()
+        self.queues[client_id] = q
+        
+        # Start listener if not running
+        if self.listen_task is None or self.listen_task.done():
+            self.listen_task = asyncio.create_task(self.listen_to_redis())
+            
+        return q
+
+    def remove_client(self, client_id: str):
+        if client_id in self.queues:
+            del self.queues[client_id]
+            
+        # Stop listener if no clients connected
+        if not self.queues and self.listen_task and not self.listen_task.done():
+            self.listen_task.cancel()
+            self.listen_task = None
+
+    async def listen_to_redis(self):
+        redis_client: Optional[redis.Redis] = None
+        pubsub: Optional[redis.client.PubSub] = None
+        try:
+            redis_client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
+            pubsub = redis_client.pubsub()
+            await pubsub.subscribe("realtime-messages")
+            
+            while True:
+                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                if message and message.get("type") == "message":
+                    try:
+                        data = json.loads(message["data"])
+                        event_str = _format_sse_event(data)
+                        # Fan-out to all connected clients
+                        for q in self.queues.values():
+                            # Non-blocking put; if queue fills up, client is too slow, but in asyncio it's an infinite queue by default
+                            q.put_nowait(event_str)
+                    except json.JSONDecodeError:
+                        logger.warning(f"Invalid JSON in pubsub message: {message['data'][:200]}")
+                elif not message:
+                    # Periodically send heartbeats on timeout
+                    for q in self.queues.values():
+                        q.put_nowait(":heartbeat\n\n")
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"Broadcaster Redis listen error: {e}")
+        finally:
+            if pubsub:
+                await pubsub.unsubscribe("realtime-messages")
+                await pubsub.close()
+            if redis_client:
+                await redis_client.close()
+
+broadcaster = Broadcaster()
+
 async def event_stream_generator(
     request: Request,
     redis_url: str,
     client_id: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
-    """Asynchronous event generator that listens to Redis Pub/Sub events
-    and streams updates to connected clients via Server-Sent Events.
-    
-    Architecture:
-    1. Subscribes to Redis Pub/Sub channel 'realtime-messages'
-    2. Webhook handlers publish message events to this channel
-    3. Events are forwarded to connected dashboard clients in SSE format
-    4. Periodic keepalive heartbeats prevent proxy timeout disconnections
-    
-    SSE Format:
-        data: {"event_type": "...", "payload": {...}}\n\n
-    
-    Headers:
-        X-Accel-Buffering: no - Prevents Nginx from buffering the response,
-        ensuring instant chunk transmission to clients.
-    """
-    # Generate unique client ID for tracking if not provided
     if not client_id:
         client_id = str(uuid.uuid4())[:8]
-    
-    redis_client: Optional[redis.Redis] = None
-    pubsub: Optional[redis.client.PubSub] = None
+        
+    client_queue = await broadcaster.add_client(client_id)
+    logger.info(f"SSE client {client_id} connected to realtime stream via broadcaster")
     
     try:
-        # Establish Redis connection with Pub/Sub support
-        redis_client = redis.Redis.from_url(
-            redis_url,
-            decode_responses=True,
-        )
-        pubsub = redis_client.pubsub()
-        
-        # Subscribe to the real-time messages channel
-        await pubsub.subscribe("realtime-messages")
-        logger.info(f"SSE client {client_id} connected to realtime stream")
-        
-        # Send initial connection event
         yield _format_sse_event({
             "event_type": "connected",
             "payload": {
@@ -72,64 +104,25 @@ async def event_stream_generator(
             }
         })
         
-        # Main event loop
         while True:
-            # Check if client has disconnected
             if await request.is_disconnected():
                 logger.info(f"SSE client {client_id} disconnected")
                 break
-            
-            try:
-                # Poll for messages with 1-second timeout
-                # This allows periodic client disconnect checks
-                message = await pubsub.get_message(
-                    ignore_subscribe_messages=True,
-                    timeout=1.0,
-                )
                 
-                if message and message.get("type") == "message":
-                    # Parse and forward the event
-                    try:
-                        data = json.loads(message["data"])
-                        yield _format_sse_event(data)
-                    except json.JSONDecodeError:
-                        logger.warning(f"Invalid JSON in pubsub message: {message['data'][:200]}")
-                        
-                else:
-                    # Send periodic keepalive heartbeat to prevent proxy timeouts
-                    # Heartbeats use SSE comment format (starts with ':')
-                    # which is ignored by EventSource clients
-                    yield ":heartbeat\n\n"
-                    
-            except asyncio.CancelledError:
-                # Graceful shutdown on task cancellation
-                logger.info(f"SSE generator cancelled for client {client_id}")
-                break
-            except Exception as e:
-                logger.error(f"SSE stream error for client {client_id}: {e}")
-                # Yield error event and attempt to continue
-                yield _format_sse_event({
-                    "event_type": "error",
-                    "payload": {"message": "Stream error, attempting to recover"}
-                })
-                await asyncio.sleep(1)
+            try:
+                # Wait for next event from broadcaster with 1s timeout to check disconnects
+                event_str = await asyncio.wait_for(client_queue.get(), timeout=1.0)
+                yield event_str
+            except asyncio.TimeoutError:
+                # Check is_disconnected on next loop iteration
+                continue
                 
     except asyncio.CancelledError:
-        # Expected on client disconnect or server shutdown
         pass
     except Exception as e:
         logger.error(f"Fatal SSE error for client {client_id}: {e}", exc_info=True)
     finally:
-        # Cleanup: Unsubscribe and close Redis connection
-        try:
-            if pubsub:
-                await pubsub.unsubscribe("realtime-messages")
-                await pubsub.close()
-            if redis_client:
-                await redis_client.close()
-        except Exception as cleanup_error:
-            logger.error(f"SSE cleanup error: {cleanup_error}")
-        
+        broadcaster.remove_client(client_id)
         logger.info(f"SSE connection closed for client {client_id}")
 
 

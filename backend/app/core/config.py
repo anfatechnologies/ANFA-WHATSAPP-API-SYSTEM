@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     SECRET_KEY: str = Field(..., min_length=32, description="JWT signing secret")
     ALGORITHM: str = Field(default="HS256")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30, ge=5, le=1440)
+    ENCRYPTION_MASTER_KEY: str = Field(
+        default="0123456789abcdef0123456789abcdef",
+        min_length=32,
+        description="AES-256-GCM Master Key for Application Level Encryption"
+    )
     
     # =============================================================================
     # META CLOUD API CREDENTIALS

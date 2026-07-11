@@ -113,8 +113,7 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
-    ports:
-      - "5678:5678"   # Expose for initial setup; remove after Nginx config
+    # PORT REMOVED: Enforce Zero-Trust Internal Routing via Nginx
     environment:
       - N8N_HOST=0.0.0.0
       - N8N_PORT=5678

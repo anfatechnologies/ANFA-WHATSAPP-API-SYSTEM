@@ -76,7 +76,7 @@ async def process_webhook_payload(
                 )
                 # FEATURE: Dispatch to n8n if enabled and a message was created
                 if message and settings.N8N_WEBHOOK_URL:
-                    await _dispatch_to_n8n(ctx["http_client"], phone_number_id, msg_data, message)
+                    await _dispatch_to_n8n(ctx, phone_number_id, msg_data, message)
             
             # Process status updates
             statuses_data = value.get("statuses", [])
@@ -264,24 +264,18 @@ async def _process_status_update(db, status_data: Dict[str, Any]) -> None:
 # =============================================================================
 
 async def _dispatch_to_n8n(
-    http_client: httpx.AsyncClient,
+    ctx: Dict[str, Any],
     phone_number_id: str,
     msg_data: Dict[str, Any],
     message: Message,
 ) -> None:
-    """Fire-and-forget dispatcher to trigger an n8n automation workflow.
-
-    Sends a structured JSON payload to the n8n webhook URL configured
-    via the N8N_WEBHOOK_URL environment variable. This allows n8n to
-    build any automation on top of incoming WhatsApp messages:
-    - Auto-reply bots
-    - CRM integrations
-    - Ticketing systems
-    - AI chatbot pipelines
-
-    Errors are logged but never raised — the main processing flow
-    must not fail because of an n8n connectivity issue.
+    """Dispatcher to trigger an n8n automation workflow with DLQ support.
+    If n8n is down or times out, the message is placed in a Dead-Letter Queue (Redis Stream)
+    for later recovery, ensuring zero data loss.
     """
+    http_client = ctx["http_client"]
+    redis_client = ctx["redis_pubsub"]
+    
     payload = {
         "source": "anfa-whatsapp-platform",
         "phone_number_id": phone_number_id,
@@ -293,7 +287,15 @@ async def _dispatch_to_n8n(
         "body": msg_data.get("text", {}).get("body") if msg_data.get("type") == "text" else None,
         "timestamp": msg_data.get("timestamp"),
     }
+    
+    async def fallback_to_dlq(error_reason: str):
+        logger.error(f"Sending to DLQ: {error_reason}")
+        dlq_entry = {"payload": json.dumps(payload), "error": error_reason}
+        await redis_client.xadd("dlq:n8n_failures", dlq_entry)
+
     try:
+        # Enforce strict timeout specifically for n8n API call
+        timeout = httpx.Timeout(5.0)
         response = await http_client.post(
             settings.N8N_WEBHOOK_URL,
             json=payload,
@@ -301,15 +303,16 @@ async def _dispatch_to_n8n(
                 "Content-Type": "application/json",
                 "X-ANFA-Source": "whatsapp-platform",
             },
+            timeout=timeout,
         )
         if response.status_code >= 400:
-            logger.warning(f"n8n webhook returned {response.status_code}: {response.text[:200]}")
+            await fallback_to_dlq(f"HTTP {response.status_code}: {response.text[:100]}")
         else:
             logger.info(f"n8n webhook dispatched successfully for message_id={message.id}")
     except httpx.TimeoutException:
-        logger.warning(f"n8n webhook timed out for message_id={message.id}")
+        await fallback_to_dlq("httpx.TimeoutException")
     except Exception as e:
-        logger.error(f"n8n webhook dispatch failed: {e}")
+        await fallback_to_dlq(str(e))
 
 
 class WorkerConfig:
