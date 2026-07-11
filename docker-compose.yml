@@ -9,6 +9,8 @@ volumes:
     driver: local
   redis_volume_data:
     driver: local
+  n8n_volume_data:
+    driver: local
 
 services:
   postgres:
@@ -96,6 +98,36 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD}
+    networks:
+      - anfa-internal-net
+
+  # =============================================================================
+  # n8n Automation Engine
+  # Self-hosted workflow automation. Every inbound WhatsApp message is dispatched
+  # here by the ARQ worker for further processing (bots, CRM sync, AI pipelines).
+  # Access the n8n UI at http://localhost:5678 (or via Nginx at /n8n/)
+  # =============================================================================
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: anfa-n8n-automation
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "5678:5678"   # Expose for initial setup; remove after Nginx config
+    environment:
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://n8n:5678/
+      - GENERIC_TIMEZONE=Asia/Karachi
+      - TZ=Asia/Karachi
+      # Uncomment to enable n8n user authentication
+      # - N8N_BASIC_AUTH_ACTIVE=true
+      # - N8N_BASIC_AUTH_USER=admin
+      # - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
+    volumes:
+      - n8n_volume_data:/home/node/.n8n
     networks:
       - anfa-internal-net
 

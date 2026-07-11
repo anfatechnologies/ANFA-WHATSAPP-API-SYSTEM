@@ -85,19 +85,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
         logger.info("ARQ Redis pool established")
         
-        # Verify Redis connectivity
-        logger.info("Verifying Redis connectivity...")
+        # FIX #1: Initialize a SHARED Redis connection pool for all API requests.
+        # This pool is injected into app.state and reused by webhooks.py,
+        # eliminating the per-request connection churn that caused 502 errors under load.
         import redis.asyncio as redis
-        redis_client = redis.Redis(
+        app.state.redis_pool = redis.Redis(
             host=settings.REDIS_HOST,
             port=settings.REDIS_PORT,
             password=settings.REDIS_PASSWORD,
             db=settings.REDIS_DB,
+            decode_responses=True,
+            max_connections=50,           # Pool cap — prevents socket exhaustion
             socket_connect_timeout=5,
+            socket_keepalive=True,
         )
-        await redis_client.ping()
-        await redis_client.close()
-        logger.info("Redis connectivity verified")
+        await app.state.redis_pool.ping()  # Verify connectivity at startup
+        logger.info("Shared Redis connection pool established (max_connections=50)")
         
         startup_elapsed = time.time() - startup_start
         logger.info(f"Startup completed in {startup_elapsed:.2f}s")
@@ -113,6 +116,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         if hasattr(app.state, 'arq_pool'):
             await app.state.arq_pool.close()
+        # FIX #1: Close the shared Redis pool gracefully
+        if hasattr(app.state, 'redis_pool'):
+            await app.state.redis_pool.close()
+            logger.info("Shared Redis pool closed")
         await close_database()
         logger.info("Database connections closed")
     except Exception as e:

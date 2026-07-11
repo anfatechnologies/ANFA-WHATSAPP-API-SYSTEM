@@ -2,6 +2,7 @@ import json
 import logging
 from typing import Dict, Any
 
+import httpx
 from arq.connections import RedisSettings
 from app.core.config import settings
 from app.core.database import get_db_session
@@ -13,6 +14,7 @@ from app.schemas.pydantic_models import (
     SessionStatusSchema,
 )
 from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.services.object_storage import ObjectStorageService
 import redis.asyncio as redis
 
@@ -35,11 +37,15 @@ async def startup(ctx: Dict[str, Any]) -> None:
         db=settings.REDIS_DB,
         decode_responses=True,
     )
+    # Shared async HTTP client for n8n webhooks (reused across jobs)
+    ctx["http_client"] = httpx.AsyncClient(timeout=10.0)
     logger.info("Inbound Worker startup complete")
 
 async def shutdown(ctx: Dict[str, Any]) -> None:
     if "redis_pubsub" in ctx:
         await ctx["redis_pubsub"].close()
+    if "http_client" in ctx:
+        await ctx["http_client"].aclose()
     logger.info("Inbound Worker shutdown complete")
 
 async def process_webhook_payload(
@@ -59,15 +65,18 @@ async def process_webhook_payload(
                 wa_id = contact_data.get("wa_id")
                 profile = contact_data.get("profile", {})
                 if wa_id:
-                    contact = await _get_or_create_contact(db, wa_id, profile.get("name"))
+                    contact = await _upsert_contact(db, wa_id, profile.get("name"))
                     contacts_map[wa_id] = contact
             
             # Process messages
             messages_data = value.get("messages", [])
             for msg_data in messages_data:
-                await _process_incoming_message(
+                message = await _process_incoming_message(
                     db, phone_number_id, msg_data, contacts_map, storage_service, ctx["redis_pubsub"]
                 )
+                # FEATURE: Dispatch to n8n if enabled and a message was created
+                if message and settings.N8N_WEBHOOK_URL:
+                    await _dispatch_to_n8n(ctx["http_client"], phone_number_id, msg_data, message)
             
             # Process status updates
             statuses_data = value.get("statuses", [])
@@ -81,28 +90,46 @@ async def process_webhook_payload(
             raise
 
 
-async def _get_or_create_contact(
-    db, wa_id: str, display_name: str = None
-) -> Contact:
-    result = await db.execute(select(Contact).where(Contact.wa_id == wa_id))
-    contact = result.scalar_one_or_none()
-    
-    if not contact:
-        contact = Contact(
+# =============================================================================
+# FIX #2: Race Condition — Use PostgreSQL UPSERT (INSERT ... ON CONFLICT)
+# =============================================================================
+
+async def _upsert_contact(db, wa_id: str, display_name: str = None) -> Contact:
+    """Atomically create or retrieve a contact using PostgreSQL UPSERT.
+
+    This replaces the old SELECT-then-INSERT pattern which caused
+    UniqueConstraint race conditions when concurrent workers processed
+    messages from the same contact simultaneously.
+    """
+    stmt = (
+        pg_insert(Contact)
+        .values(
             wa_id=wa_id,
             display_name=display_name,
             phone_number=wa_id,
         )
-        db.add(contact)
-        await db.flush()
-        
-        session = ChatSession(
+        .on_conflict_do_update(
+            index_elements=["wa_id"],
+            # Only update display_name if it's being provided and is new
+            set_=dict(display_name=display_name) if display_name else dict(wa_id=wa_id),
+        )
+        .returning(Contact)
+    )
+    result = await db.execute(stmt)
+    contact = result.scalar_one()
+
+    # Ensure a ChatSession exists for this contact (also safe for concurrent calls)
+    session_stmt = (
+        pg_insert(ChatSession)
+        .values(
             contact_id=contact.id,
             status=SessionStatusSchema.PENDING,
         )
-        db.add(session)
-        await db.flush()
-    
+        .on_conflict_do_nothing(index_elements=["contact_id"])  # Assumes unique index on contact_id for open sessions
+    )
+    await db.execute(session_stmt)
+    await db.flush()
+
     return contact
 
 
@@ -113,8 +140,8 @@ async def _process_incoming_message(
     contacts_map: Dict[str, Contact],
     storage_service: ObjectStorageService,
     redis_pubsub: redis.Redis
-) -> None:
-    from_type = msg_data.get("from")
+) -> Message | None:
+    from_wa_id = msg_data.get("from")
     message_id = msg_data.get("id")
     
     msg_type = msg_data.get("type", "text")
@@ -131,7 +158,6 @@ async def _process_incoming_message(
         raw_media_url = media_data.get("link") or media_data.get("url")
         media_mime = media_data.get("mime_type", "application/octet-stream")
         
-        # Call ObjectStorageService to upload file to MinIO
         if raw_media_url:
             try:
                 internal_url = await storage_service.upload_from_url(raw_media_url, media_mime)
@@ -159,10 +185,10 @@ async def _process_incoming_message(
         else:
             body = "[Interactive message]"
             
-    contact = contacts_map.get(from_type)
+    contact = contacts_map.get(from_wa_id)
     if not contact:
-        contact = await _get_or_create_contact(db, from_type)
-        contacts_map[from_type] = contact
+        contact = await _upsert_contact(db, from_wa_id)
+        contacts_map[from_wa_id] = contact
         
     result = await db.execute(
         select(ChatSession)
@@ -177,7 +203,6 @@ async def _process_incoming_message(
         db.add(session)
         await db.flush()
         
-    # Create the message and mark it as PROCESSED
     message = Message(
         session_id=session.id,
         direction=MessageDirectionSchema.INBOUND,
@@ -188,20 +213,21 @@ async def _process_incoming_message(
         media_url=media_url,
         media_type=media_type,
         media_caption=media_caption,
-        status=MessageStatusSchema.PROCESSED,  # Modified to PROCESSED
+        status=MessageStatusSchema.PROCESSED,
     )
     db.add(message)
     
     from datetime import datetime, timezone
     session.last_message_at = datetime.now(timezone.utc)
-    
-    # Real-time event pub/sub (using connection pool)
+    await db.flush()
+
+    # Real-time event pub/sub
     await redis_pubsub.publish("realtime-messages", json.dumps({
         "event_type": "message_received",
         "payload": {
             "message_id": str(message.id),
             "session_id": str(session.id),
-            "contact_wa_id": from_type,
+            "contact_wa_id": from_wa_id,
             "body": body,
             "media_type": media_type,
             "media_url": media_url,
@@ -209,6 +235,8 @@ async def _process_incoming_message(
             "status": "processed"
         }
     }))
+
+    return message
 
 
 async def _process_status_update(db, status_data: Dict[str, Any]) -> None:
@@ -229,6 +257,59 @@ async def _process_status_update(db, status_data: Dict[str, Any]) -> None:
         await db.execute(
             update(Message).where(Message.message_id == message_id).values(status=mapped_status)
         )
+
+
+# =============================================================================
+# FEATURE: n8n Webhook Dispatcher
+# =============================================================================
+
+async def _dispatch_to_n8n(
+    http_client: httpx.AsyncClient,
+    phone_number_id: str,
+    msg_data: Dict[str, Any],
+    message: Message,
+) -> None:
+    """Fire-and-forget dispatcher to trigger an n8n automation workflow.
+
+    Sends a structured JSON payload to the n8n webhook URL configured
+    via the N8N_WEBHOOK_URL environment variable. This allows n8n to
+    build any automation on top of incoming WhatsApp messages:
+    - Auto-reply bots
+    - CRM integrations
+    - Ticketing systems
+    - AI chatbot pipelines
+
+    Errors are logged but never raised — the main processing flow
+    must not fail because of an n8n connectivity issue.
+    """
+    payload = {
+        "source": "anfa-whatsapp-platform",
+        "phone_number_id": phone_number_id,
+        "message_id": str(message.id),
+        "session_id": str(message.session_id),
+        "wa_message_id": msg_data.get("id"),
+        "from": msg_data.get("from"),
+        "type": msg_data.get("type"),
+        "body": msg_data.get("text", {}).get("body") if msg_data.get("type") == "text" else None,
+        "timestamp": msg_data.get("timestamp"),
+    }
+    try:
+        response = await http_client.post(
+            settings.N8N_WEBHOOK_URL,
+            json=payload,
+            headers={
+                "Content-Type": "application/json",
+                "X-ANFA-Source": "whatsapp-platform",
+            },
+        )
+        if response.status_code >= 400:
+            logger.warning(f"n8n webhook returned {response.status_code}: {response.text[:200]}")
+        else:
+            logger.info(f"n8n webhook dispatched successfully for message_id={message.id}")
+    except httpx.TimeoutException:
+        logger.warning(f"n8n webhook timed out for message_id={message.id}")
+    except Exception as e:
+        logger.error(f"n8n webhook dispatch failed: {e}")
 
 
 class WorkerConfig:

@@ -62,6 +62,19 @@ class Settings(BaseSettings):
     ATHENA_ML_ENABLE_SERVER_SIDE_CHECKPOINT_PATH_OVERRIDE: bool = Field(default=False)
     TUNELAB_API_ENDPOINT: Optional[str] = Field(default=None)
     TUNELAB_API_KEY: Optional[str] = Field(default=None)
+
+    # =============================================================================
+    # N8N AUTOMATION INTEGRATION
+    # =============================================================================
+    N8N_WEBHOOK_URL: Optional[str] = Field(
+        default=None,
+        description="Full URL of the n8n webhook trigger node (e.g. http://n8n:5678/webhook/your-uuid). "
+                    "When set, every inbound WhatsApp message is dispatched to n8n for automation."
+    )
+    N8N_ENABLED: bool = Field(
+        default=True,
+        description="Master switch for n8n dispatching. Set to False to disable without removing the URL."
+    )
     
     # =============================================================================
     # RATE LIMITING
