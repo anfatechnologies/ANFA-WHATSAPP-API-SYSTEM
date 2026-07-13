@@ -24,7 +24,10 @@ from app.api.dashboard import router as dashboard_router
 
 import structlog
 from prometheus_fastapi_instrumentator import Instrumentator
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+try:
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+except ImportError:
+    FastAPIInstrumentor = None
 
 structlog.configure(
     processors=[
@@ -164,7 +167,10 @@ if settings.ENABLE_METRICS:
     Instrumentator().instrument(app).expose(app)
 
 if settings.ENABLE_TRACING:
-    FastAPIInstrumentor.instrument_app(app)
+    if FastAPIInstrumentor is not None:
+        FastAPIInstrumentor.instrument_app(app)
+    else:
+        logger.warning("ENABLE_TRACING is true but opentelemetry-instrumentation-fastapi is not installed.")
 
 # P1 Fix: CORS — uses explicit FRONTEND_URL instead of allow_origins=["*"] or []
 # allow_origins=[] in production meant frontend couldn't call the API at all.

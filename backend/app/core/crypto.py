@@ -2,6 +2,7 @@
 import os
 import base64
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from app.core.config import settings
 
 # =============================================================================
 # DATA SOVEREIGNTY: AES-256-GCM Encryption Layer

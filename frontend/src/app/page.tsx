@@ -21,7 +21,7 @@ import {
   DOCS_URL, CONTRIBUTING_URL, LICENSE_URL, DISCORD_URL,
 } from './landing-content';
 
-// GithubIcon SVG icon (lucide-react does not export 'GithubIcon' in v1.x)
+// GitHub SVG icon (lucide-react does not export 'Github' in v1.x)
 function GithubIcon({ className = '' }: { className?: string }) {
   return (
     <svg
@@ -85,12 +85,12 @@ function GradientText({ children, className = '' }: { children: React.ReactNode;
   );
 }
 
-// ─── GithubIcon Stats ─────────────────────────────────────────────────────────────
+// ─── GitHub Stats ─────────────────────────────────────────────────────────────
 
 function useGitHubStats(repo: string) {
   const [stats, setStats] = useState<{ stars: number; forks: number; watchers: number } | null>(null);
   useEffect(() => {
-    fetch(`https://api.GithubIcon.com/repos/${repo}`)
+    fetch(`https://api.github.com/repos/${repo}`)
       .then((r) => r.json())
       .then((d) => setStats({ stars: d.stargazers_count ?? 0, forks: d.forks_count ?? 0, watchers: d.subscribers_count ?? 0 }))
       .catch(() => {});
@@ -179,11 +179,11 @@ function Navbar({ stars }: { stars: number | null }) {
             href={GITHUB_URL}
             target="_blank"
             rel="noopener noreferrer"
-            id="GithubIcon-star-btn"
+            id="github-star-btn"
             className="flex items-center gap-2 rounded-xl border border-slate-700/60 bg-slate-800/60 px-4 py-2 text-sm font-medium text-slate-200 backdrop-blur-sm transition-all hover:border-emerald-500/40 hover:bg-slate-800 hover:text-white"
           >
             <Star className="h-4 w-4 text-yellow-400" />
-            Star on GithubIcon
+            Star on GitHub
             {stars !== null && (
               <span className="rounded-full bg-slate-700/80 px-2 py-0.5 text-xs text-slate-300">
                 <StatNumber value={stars} />
@@ -239,7 +239,7 @@ function Navbar({ stars }: { stars: number | null }) {
                 className="mt-2 flex items-center gap-2 rounded-xl border border-slate-700/60 bg-slate-800/60 px-4 py-2.5 text-sm font-medium text-slate-200"
               >
                 <Star className="h-4 w-4 text-yellow-400" />
-                Star on GithubIcon
+                Star on GitHub
               </a>
               <a
                 href="#quickstart"
@@ -328,7 +328,7 @@ function HeroSection({ stats }: { stats: ReturnType<typeof useGitHubStats> }) {
               href={GITHUB_URL}
               target="_blank"
               rel="noopener noreferrer"
-              id="hero-GithubIcon-btn"
+              id="hero-github-btn"
               className="flex items-center gap-2 rounded-2xl border border-slate-700/60 bg-slate-800/60 px-8 py-4 text-base font-semibold text-slate-200 backdrop-blur-sm transition-all hover:border-slate-600 hover:bg-slate-800 hover:text-white"
             >
               <GithubIcon className="h-5 w-5" />
@@ -432,7 +432,7 @@ function HeroSection({ stats }: { stats: ReturnType<typeof useGitHubStats> }) {
 
 function StatsBar({ stats }: { stats: ReturnType<typeof useGitHubStats> }) {
   const items = [
-    { icon: Star, label: 'GithubIcon Stars', value: stats?.stars ?? '—', color: 'text-yellow-400' },
+    { icon: Star, label: 'GitHub Stars', value: stats?.stars ?? '—', color: 'text-yellow-400' },
     { icon: GitFork, label: 'Forks', value: stats?.forks ?? '—', color: 'text-blue-400' },
     { icon: Users, label: 'Watchers', value: stats?.watchers ?? '—', color: 'text-emerald-400' },
     { icon: Globe, label: 'Self-Hosted', value: '100%', color: 'text-cyan-400' },
@@ -639,11 +639,11 @@ function OpenSourceSection() {
                 href={GITHUB_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                id="oss-GithubIcon-btn"
+                id="oss-github-btn"
                 className="flex items-center gap-2 rounded-xl border border-slate-700/60 bg-slate-800/60 px-5 py-2.5 text-sm font-medium text-slate-200 transition-all hover:border-slate-600 hover:text-white"
               >
                 <GithubIcon className="h-4 w-4" />
-                View on GithubIcon
+                View on GitHub
               </a>
               <a
                 href={CONTRIBUTING_URL}
@@ -723,7 +723,7 @@ function Footer() {
             <p className="text-sm font-medium text-slate-400">
               Built with ❤️ by{' '}
               <a
-                href="https://GithubIcon.com/anfatechnologies"
+                href="https://github.com/anfatechnologies"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="font-semibold text-emerald-400 hover:text-emerald-300 hover:underline"
@@ -755,7 +755,7 @@ function Footer() {
             <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-600">Links</div>
             <ul className="space-y-2.5">
               {[
-                { label: 'GithubIcon', href: GITHUB_URL },
+                { label: 'GitHub', href: GITHUB_URL },
                 { label: 'Documentation', href: DOCS_URL },
                 { label: 'License', href: LICENSE_URL },
                 { label: 'Contributing', href: CONTRIBUTING_URL },

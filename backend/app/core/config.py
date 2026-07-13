@@ -54,12 +54,12 @@ class Settings(BaseSettings):
     ALGORITHM: str = Field(default="HS256")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30, ge=5, le=1440)
     ENCRYPTION_MASTER_KEY: str = Field(
-        default="0123456789abcdef0123456789abcdef",
+        ...,
         min_length=32,
         description="AES-256-GCM Master Key for Application Level Encryption"
     )
-    ADMIN_USERNAME: str = Field(default="admin", description="Admin username for zero-configuration dashboard auth")
-    ADMIN_PASSWORD: str = Field(default="admin_pass", description="Admin password for zero-configuration dashboard auth")
+    ADMIN_USERNAME: str = Field(..., description="Admin username for zero-configuration dashboard auth")
+    ADMIN_PASSWORD: str = Field(..., description="Admin password for zero-configuration dashboard auth")
     
     # =============================================================================
     # META CLOUD API CREDENTIALS

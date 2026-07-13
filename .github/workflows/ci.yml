@@ -46,6 +46,9 @@ jobs:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ""
       SECRET_KEY: "ci-test-secret-key-that-is-at-least-32-characters-long"
+      ENCRYPTION_MASTER_KEY: "0123456789abcdef0123456789abcdef"
+      ADMIN_USERNAME: "admin"
+      ADMIN_PASSWORD: "adminpassword"
       DEBUG: "true"
 
     steps:
@@ -63,6 +66,16 @@ jobs:
         run: |
           cd backend
           pip install -r requirements.txt
+
+      - name: Verify Backend Imports (Fail Fast)
+        run: |
+          cd backend
+          echo "Testing main app import..."
+          python -c "import app.main"
+          echo "Testing inbound worker import..."
+          python -c "import worker"
+          echo "Testing outbound worker import..."
+          python -c "import app.workers.outbound"
 
       - name: Run pytest with coverage
         run: |
