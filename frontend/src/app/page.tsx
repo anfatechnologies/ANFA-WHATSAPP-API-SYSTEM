@@ -11,7 +11,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, useInView, AnimatePresence } from 'framer-motion';
 import {
   MessageSquare, ShieldCheck, Phone, Zap, Bot, Lock,
-  Gauge, Container, Github, Star, GitFork, Users,
+  Gauge, Container, Star, GitFork, Users,
   ExternalLink, Copy, Check, Menu, X, ChevronRight,
   ArrowRight, Terminal, Cpu, Database, Globe,
 } from 'lucide-react';
@@ -21,7 +21,20 @@ import {
   DOCS_URL, CONTRIBUTING_URL, LICENSE_URL, DISCORD_URL,
 } from './landing-content';
 
-// ─── Icon Map ────────────────────────────────────────────────────────────────
+// GithubIcon SVG icon (lucide-react does not export 'GithubIcon' in v1.x)
+function GithubIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M12 0C5.37 0 0 5.373 0 12c0 5.303 3.438 9.8 8.205 11.387.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.387-1.333-1.757-1.333-1.757-1.089-.744.083-.729.083-.729 1.205.084 1.84 1.237 1.84 1.237 1.07 1.834 2.807 1.304 3.492.997.108-.776.418-1.305.762-1.605-2.665-.305-5.467-1.334-5.467-5.931 0-1.31.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0 1 12 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222 0 1.606-.015 2.898-.015 3.293 0 .322.216.694.825.576C20.565 21.796 24 17.3 24 12c0-6.627-5.373-12-12-12z" />
+    </svg>
+  );
+}
 
 const ICON_MAP: Record<string, React.ElementType> = {
   MessageSquare, ShieldCheck, Phone, Zap, Bot, Lock, Gauge, Container,
@@ -72,12 +85,12 @@ function GradientText({ children, className = '' }: { children: React.ReactNode;
   );
 }
 
-// ─── GitHub Stats ─────────────────────────────────────────────────────────────
+// ─── GithubIcon Stats ─────────────────────────────────────────────────────────────
 
 function useGitHubStats(repo: string) {
   const [stats, setStats] = useState<{ stars: number; forks: number; watchers: number } | null>(null);
   useEffect(() => {
-    fetch(`https://api.github.com/repos/${repo}`)
+    fetch(`https://api.GithubIcon.com/repos/${repo}`)
       .then((r) => r.json())
       .then((d) => setStats({ stars: d.stargazers_count ?? 0, forks: d.forks_count ?? 0, watchers: d.subscribers_count ?? 0 }))
       .catch(() => {});
@@ -166,11 +179,11 @@ function Navbar({ stars }: { stars: number | null }) {
             href={GITHUB_URL}
             target="_blank"
             rel="noopener noreferrer"
-            id="github-star-btn"
+            id="GithubIcon-star-btn"
             className="flex items-center gap-2 rounded-xl border border-slate-700/60 bg-slate-800/60 px-4 py-2 text-sm font-medium text-slate-200 backdrop-blur-sm transition-all hover:border-emerald-500/40 hover:bg-slate-800 hover:text-white"
           >
             <Star className="h-4 w-4 text-yellow-400" />
-            Star on GitHub
+            Star on GithubIcon
             {stars !== null && (
               <span className="rounded-full bg-slate-700/80 px-2 py-0.5 text-xs text-slate-300">
                 <StatNumber value={stars} />
@@ -226,7 +239,7 @@ function Navbar({ stars }: { stars: number | null }) {
                 className="mt-2 flex items-center gap-2 rounded-xl border border-slate-700/60 bg-slate-800/60 px-4 py-2.5 text-sm font-medium text-slate-200"
               >
                 <Star className="h-4 w-4 text-yellow-400" />
-                Star on GitHub
+                Star on GithubIcon
               </a>
               <a
                 href="#quickstart"
@@ -315,10 +328,10 @@ function HeroSection({ stats }: { stats: ReturnType<typeof useGitHubStats> }) {
               href={GITHUB_URL}
               target="_blank"
               rel="noopener noreferrer"
-              id="hero-github-btn"
+              id="hero-GithubIcon-btn"
               className="flex items-center gap-2 rounded-2xl border border-slate-700/60 bg-slate-800/60 px-8 py-4 text-base font-semibold text-slate-200 backdrop-blur-sm transition-all hover:border-slate-600 hover:bg-slate-800 hover:text-white"
             >
-              <Github className="h-5 w-5" />
+              <GithubIcon className="h-5 w-5" />
               {HERO.secondaryCta}
             </a>
           </motion.div>
@@ -419,7 +432,7 @@ function HeroSection({ stats }: { stats: ReturnType<typeof useGitHubStats> }) {
 
 function StatsBar({ stats }: { stats: ReturnType<typeof useGitHubStats> }) {
   const items = [
-    { icon: Star, label: 'GitHub Stars', value: stats?.stars ?? '—', color: 'text-yellow-400' },
+    { icon: Star, label: 'GithubIcon Stars', value: stats?.stars ?? '—', color: 'text-yellow-400' },
     { icon: GitFork, label: 'Forks', value: stats?.forks ?? '—', color: 'text-blue-400' },
     { icon: Users, label: 'Watchers', value: stats?.watchers ?? '—', color: 'text-emerald-400' },
     { icon: Globe, label: 'Self-Hosted', value: '100%', color: 'text-cyan-400' },
@@ -612,7 +625,7 @@ function OpenSourceSection() {
         <div className="grid items-center gap-12 lg:grid-cols-2">
           <FadeIn>
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3.5 py-1.5 text-sm font-medium text-cyan-400">
-              <Github className="h-3.5 w-3.5" />
+              <GithubIcon className="h-3.5 w-3.5" />
               Open Source
             </div>
             <h2 className="mb-5 text-4xl font-extrabold tracking-tight text-white">
@@ -626,11 +639,11 @@ function OpenSourceSection() {
                 href={GITHUB_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                id="oss-github-btn"
+                id="oss-GithubIcon-btn"
                 className="flex items-center gap-2 rounded-xl border border-slate-700/60 bg-slate-800/60 px-5 py-2.5 text-sm font-medium text-slate-200 transition-all hover:border-slate-600 hover:text-white"
               >
-                <Github className="h-4 w-4" />
-                View on GitHub
+                <GithubIcon className="h-4 w-4" />
+                View on GithubIcon
               </a>
               <a
                 href={CONTRIBUTING_URL}
@@ -710,7 +723,7 @@ function Footer() {
             <p className="text-sm font-medium text-slate-400">
               Built with ❤️ by{' '}
               <a
-                href="https://github.com/anfatechnologies"
+                href="https://GithubIcon.com/anfatechnologies"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="font-semibold text-emerald-400 hover:text-emerald-300 hover:underline"
@@ -742,7 +755,7 @@ function Footer() {
             <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-600">Links</div>
             <ul className="space-y-2.5">
               {[
-                { label: 'GitHub', href: GITHUB_URL },
+                { label: 'GithubIcon', href: GITHUB_URL },
                 { label: 'Documentation', href: DOCS_URL },
                 { label: 'License', href: LICENSE_URL },
                 { label: 'Contributing', href: CONTRIBUTING_URL },
