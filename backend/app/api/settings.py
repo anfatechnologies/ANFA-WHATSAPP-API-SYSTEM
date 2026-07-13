@@ -12,7 +12,10 @@ import redis.asyncio as redis
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.security import verify_access_token, encrypt_redis_secret, decrypt_redis_secret
+from app.services.settings_service import SettingsService
+from sse_starlette.sse import EventSourceResponse
+import asyncio
+from app.core.security import verify_access_token, encrypt_redis_secret, decrypt_redis_secret, verify_admin
 from app.schemas.pydantic_models import (
     SystemSettings,
     MetaCredentialsSettings,
@@ -20,7 +23,7 @@ from app.schemas.pydantic_models import (
     PhoneNumberConfigResponse,
     PhoneNumberConfigUpdate,
 )
-from app.models.schema import PhoneNumberConfig
+from app.models.schema import PhoneNumberConfig, AuditLog
 from sqlalchemy import select
 
 router = APIRouter(prefix="/settings", tags=["Settings"])
@@ -44,6 +47,100 @@ async def _get_redis() -> redis.Redis:
 # =============================================================================
 # SYSTEM SETTINGS
 # =============================================================================
+
+@router.get("/", response_model=SystemSettings)
+async def get_settings_dashboard(
+    admin: dict = Depends(verify_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieve all configuration variables required for the Settings Dashboard."""
+    sys_settings = await SettingsService.get_settings(db)
+    
+    # Do not return encrypted secrets in plain text over the API
+    return SystemSettings(
+        whatsapp_business_account_id=sys_settings.whatsapp_business_account_id,
+        phone_number_id=sys_settings.phone_number_id,
+        n8n_webhook_url=sys_settings.n8n_webhook_url,
+        auto_reply_enabled=sys_settings.auto_reply_enabled,
+        default_reply_message=sys_settings.default_reply_message,
+        data_retention_days=sys_settings.data_retention_days,
+        enable_logging=sys_settings.enable_logging,
+        # We don't return the raw secrets here, we could mask them if needed
+    )
+
+@router.get("/live")
+async def get_settings_live(admin: dict = Depends(verify_admin)):
+    """SSE endpoint for streaming live settings updates to the frontend."""
+    async def event_generator():
+        redis_client = await SettingsService.get_redis()
+        pubsub = redis_client.pubsub()
+        await pubsub.subscribe("settings:updates")
+        try:
+            while True:
+                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                if message and message["type"] == "message":
+                    yield {
+                        "event": "message",
+                        "data": message["data"]
+                    }
+                await asyncio.sleep(0.1)
+        finally:
+            await pubsub.unsubscribe("settings:updates")
+            await redis_client.close()
+
+    return EventSourceResponse(event_generator())
+
+@router.post("/update")
+async def update_settings_dashboard(
+    payload: dict,
+    admin: dict = Depends(verify_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update configurations, and trigger broadcasts."""
+    # Update via service
+    updates = {}
+    
+    # 1. Meta Config
+    if "api_config" in payload:
+        api_config = payload["api_config"]
+        if "appId" in api_config:
+            updates["phone_number_id"] = api_config["appId"]
+        if "appSecret" in api_config and api_config["appSecret"]:
+            updates["app_secret"] = api_config["appSecret"]
+        if "accessToken" in api_config and api_config["accessToken"]:
+            updates["permanent_access_token"] = api_config["accessToken"]
+    
+    # 2. Automation
+    if "automation" in payload:
+        automation = payload["automation"]
+        if "n8n_webhook_url" in automation:
+            updates["n8n_webhook_url"] = automation["n8n_webhook_url"]
+        if "auto_reply_enabled" in automation:
+            updates["auto_reply_enabled"] = automation["auto_reply_enabled"]
+        if "default_reply_message" in automation:
+            updates["default_reply_message"] = automation["default_reply_message"]
+            
+    # 3. Privacy
+    if "privacy" in payload:
+        privacy = payload["privacy"]
+        if "data_retention_days" in privacy:
+            updates["data_retention_days"] = int(privacy["data_retention_days"])
+        if "enable_logging" in privacy:
+            updates["enable_logging"] = privacy["enable_logging"]
+
+    await SettingsService.update_settings(db, updates)
+    
+    # Audit Logging
+    audit = AuditLog(
+        action="settings_update",
+        resource_type="system_settings",
+        details={"updates_keys": list(updates.keys())}
+    )
+    db.add(audit)
+    await db.commit()
+
+    return {"status": "success", "message": "Settings updated"}
+
 
 @router.get("/system", response_model=SystemSettings)
 async def get_system_settings(

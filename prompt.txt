@@ -1,33 +1,44 @@
-Role: You are the Lead Systems Architect and Chief Security Officer for the ANFA WhatsApp Platform.
+Role: Senior Full-Stack Architect.
+Objective: Build a robust, real-time Settings Module for the ANFA WhatsApp Platform that is fully synced between Backend (FastAPI/PostgreSQL) and Frontend (Next.js/React).
 
-Objective: Execute the $1 Billion-stakes Zero-Trust Hardening Plan. You have full visibility into the codebase. Your goal is to eliminate all critical, high, and medium vulnerabilities identified in the audit.
+Task: Implement the following 4 Settings Categories (DB + UI + API):
 
-Strict Operational Instructions:
+1. Meta Business Configuration (API Settings):
 
-Iterative Execution: You are to perform fixes step-by-step. Do not attempt to refactor the entire system in one massive block. Focus on one service/module at a time (e.g., first Auth, then Networking, then Workers).
+Fields: WhatsApp_Business_Account_ID, Phone_Number_ID, Permanent_Access_Token, App_Secret.
 
-Zero-Trust Enforcement:
+Logic: These must be stored in the DB (encrypted) and loaded into the worker.py context dynamically so changes take effect without restarting containers.
 
-Any I/O operation must have an explicit timeout.
+2. Automation & Workflow Settings (Integration):
 
-Any secret handling must use AES-256-GCM encryption.
+Fields: n8n_Webhook_URL, Auto_Reply_Enabled (Toggle), Default_Reply_Message.
 
-Any Redis interaction must have a try-except block.
+Logic: Toggle these to enable/disable automated message handling in the background worker.
 
-Verification: After providing the corrected code for a module, explain why the fix is secure and how it prevents the vulnerability identified in the audit.
+3. System & Privacy (Data Sovereignty):
 
-Integration: Ensure every fix maintains the docker-compose.yml internal networking integrity and the async/await paradigm.
+Fields: Data_Retention_Days (Integer), Encryption_Key_Rotation (Button), Enable_Logging (Toggle).
 
-Immediate Action Plan (Start Here):
+Logic: If Data_Retention_Days is changed, trigger a background task to clean up old logs/messages in PostgreSQL.
 
-Step 1: Perimeter Security. Harden docker-compose.yml and nginx.conf to close exposed ports and enforce internal routing.
+4. Appearance & UI Preferences:
 
-Step 2: Webhook Ingress Hardening. Refactor webhooks.py to include payload size limits, IP whitelisting logic, and robust HMAC verification.
+Fields: Theme_Mode (Dark/Light/System), Notification_Sound_Enabled (Toggle), Language_Selection.
 
-Step 3: Worker Reliability. Implement the Dead-Letter-Queue (DLQ) for n8n integration failures in worker.py.
+Logic: Persist these in local storage but sync with DB for multi-device cross-session experience.
 
-Step 4: SSE Scaling. Refactor stream.py to use the "Centralized Broadcaster Pattern" (Fan-out) to stop the O(N) Redis connection exhaustion.
+Technical Requirements:
 
-Step 5: Data Sovereignty. Implement the AES-256-GCM encryption layer for secrets and message bodies.
+Sync: Implement a GET /api/settings/live endpoint that streams updates to the frontend using the same SSE (Server-Sent Events) pipe we used for messages. This ensures settings changes are reflected instantly without page refresh.
 
-Instruction: Acknowledge this master directive and begin by providing the hardened docker-compose.yml and nginx.conf configurations for Step 1.
+Security: POST /api/settings/update must validate input, encrypt secrets, and log the admin change to the immutable audit trail.
+
+Frontend: Create a reusable SettingsForm component using Shadcn/UI that binds to the React Query state.
+
+Instruction for Agent:
+
+Start by defining the Settings Pydantic model and SQLAlchemy table.
+
+Create the unified SettingsService in the backend to handle caching and real-time broadcasting.
+
+Generate the React component that subscribes to the setting changes via SSE.

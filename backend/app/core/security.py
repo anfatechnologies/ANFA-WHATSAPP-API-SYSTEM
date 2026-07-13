@@ -295,3 +295,31 @@ def generate_secure_random(length: int = 32) -> str:
     which provides CSPRNG quality randomness suitable for tokens and keys.
     """
     return secrets.token_urlsafe(length)
+
+
+# =============================================================================
+# ZERO-CONFIGURATION DASHBOARD AUTHENTICATION
+# =============================================================================
+
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+
+# Security Rationale: Basic auth is safe only over HTTPS. 
+# It provides zero-configuration access for deployers without a DB setup.
+basic_security = HTTPBasic()
+
+def verify_admin(credentials: HTTPBasicCredentials = Depends(basic_security)):
+    """Verify hardcoded admin credentials for dashboard access.
+    
+    Security Rationale: Uses secrets.compare_digest for constant-time comparison
+    to prevent timing attacks.
+    """
+    correct_username = secrets.compare_digest(credentials.username, settings.ADMIN_USERNAME)
+    correct_password = secrets.compare_digest(credentials.password, settings.ADMIN_PASSWORD)
+    
+    if not (correct_username and correct_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username

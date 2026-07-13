@@ -20,6 +20,7 @@ from app.core.database import init_database, close_database, db_manager
 from app.api.webhooks import router as webhooks_router
 from app.api.settings import router as settings_router
 from app.api.stream import router as stream_router
+from app.api.dashboard import router as dashboard_router
 
 import structlog
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -247,6 +248,13 @@ app.include_router(settings_router, prefix="/api")
 
 # SSE streaming routes (authenticated via query param or header)
 app.include_router(stream_router, prefix="/api")
+
+# Dashboard routes (zero-config basic auth)
+app.include_router(dashboard_router, prefix="/api")
+
+# Chat routes (authenticated)
+from app.api.chats import router as chats_router
+app.include_router(chats_router, prefix="/api")
 
 # =============================================================================
 # HEALTH CHECK ENDPOINTS

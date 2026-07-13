@@ -95,8 +95,8 @@ class AgentResponse(AgentBase):
 
 class AgentLogin(BaseModel):
     """Schema for agent login requests."""
-    email: EmailStr
-    password: str
+    email: EmailStr = Field(..., max_length=255)
+    password: str = Field(..., max_length=128)
 
 
 class TokenResponse(BaseModel):
@@ -298,7 +298,7 @@ class WebhookPayload(BaseModel):
     Meta's webhook payload is highly variable. We accept a flexible dict
     structure and parse it internally for maximum compatibility.
     """
-    object: str = Field(default="whatsapp_business_account")
+    object: str = Field(default="whatsapp_business_account", max_length=100)
     entry: List[Dict[str, Any]] = Field(default_factory=list)
 
 

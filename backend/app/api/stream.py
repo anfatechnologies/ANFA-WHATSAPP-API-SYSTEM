@@ -23,28 +23,42 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 class Broadcaster:
+    """Centralized Broadcaster Pattern for SSE Streaming
+    
+    Why: Instead of each client connection holding its own Redis subscription 
+    (which scales poorly and exhausts connection pools), this pattern uses a 
+    SINGLE centralized Redis subscription. 
+    
+    How: 
+    1. A single background task (`listen_to_redis`) subscribes to the Redis PubSub channel.
+    2. Incoming events are fanned out to all connected clients via in-memory `asyncio.Queue`s.
+    3. Proper locking prevents race conditions during rapid client connect/disconnect cycles.
+    """
     def __init__(self):
         self.listen_task: Optional[asyncio.Task] = None
         self.queues: Dict[str, asyncio.Queue] = {}
+        self._lock = asyncio.Lock()
 
     async def add_client(self, client_id: str) -> asyncio.Queue:
         q = asyncio.Queue()
-        self.queues[client_id] = q
-        
-        # Start listener if not running
-        if self.listen_task is None or self.listen_task.done():
-            self.listen_task = asyncio.create_task(self.listen_to_redis())
+        async with self._lock:
+            self.queues[client_id] = q
             
+            # Start listener if not running
+            if self.listen_task is None or self.listen_task.done():
+                self.listen_task = asyncio.create_task(self.listen_to_redis())
+                
         return q
 
-    def remove_client(self, client_id: str):
-        if client_id in self.queues:
-            del self.queues[client_id]
-            
-        # Stop listener if no clients connected
-        if not self.queues and self.listen_task and not self.listen_task.done():
-            self.listen_task.cancel()
-            self.listen_task = None
+    async def remove_client(self, client_id: str):
+        async with self._lock:
+            if client_id in self.queues:
+                del self.queues[client_id]
+                
+            # Stop listener if no clients connected
+            if not self.queues and self.listen_task and not self.listen_task.done():
+                self.listen_task.cancel()
+                self.listen_task = None
 
     async def listen_to_redis(self):
         redis_client: Optional[redis.Redis] = None
@@ -122,7 +136,7 @@ async def event_stream_generator(
     except Exception as e:
         logger.error(f"Fatal SSE error for client {client_id}: {e}", exc_info=True)
     finally:
-        broadcaster.remove_client(client_id)
+        await broadcaster.remove_client(client_id)
         logger.info(f"SSE connection closed for client {client_id}")
 
 

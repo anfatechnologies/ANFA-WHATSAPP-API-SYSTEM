@@ -6,8 +6,11 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
+import useSWR from 'swr';
 import { useSSE, MessageEventData } from '@/hooks/useSSE';
 import { formatDistanceToNow } from 'date-fns';
+
+const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 // =============================================================================
 // TYPE DEFINITIONS
@@ -34,99 +37,8 @@ interface ChatMessage {
 }
 
 // =============================================================================
-// MOCK DATA (until API integration)
+// NO MORE MOCK DATA (Using Live API)
 // =============================================================================
-
-const mockSessions: ChatSession[] = [
-  {
-    id: '1',
-    contact_name: 'John Smith',
-    contact_wa_id: '1234567890',
-    status: 'open',
-    last_message: 'Hi, I have a question about my order',
-    last_message_at: new Date(Date.now() - 1000 * 60 * 2).toISOString(),
-    unread_count: 3,
-    assigned_agent: 'Alice',
-  },
-  {
-    id: '2',
-    contact_name: 'Sarah Johnson',
-    contact_wa_id: '0987654321',
-    status: 'pending',
-    last_message: 'Thank you for your help!',
-    last_message_at: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
-    unread_count: 0,
-  },
-  {
-    id: '3',
-    contact_name: 'Michael Chen',
-    contact_wa_id: '5551234567',
-    status: 'open',
-    last_message: 'When will my package arrive?',
-    last_message_at: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-    unread_count: 1,
-    assigned_agent: 'Bob',
-  },
-];
-
-const mockMessages: ChatMessage[] = [
-  {
-    id: '1',
-    body: 'Hello! How can I help you today?',
-    direction: 'outbound',
-    sender_type: 'agent',
-    status: 'read',
-    created_at: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-  },
-  {
-    id: '2',
-    body: 'Hi, I have a question about my order #12345',
-    direction: 'inbound',
-    sender_type: 'contact',
-    status: 'delivered',
-    created_at: new Date(Date.now() - 1000 * 60 * 25).toISOString(),
-  },
-  {
-    id: '3',
-    body: 'Of course! Let me look that up for you.',
-    direction: 'outbound',
-    sender_type: 'agent',
-    status: 'read',
-    created_at: new Date(Date.now() - 1000 * 60 * 20).toISOString(),
-  },
-  {
-    id: '4',
-    body: 'Your order is scheduled for delivery tomorrow between 2-4 PM.',
-    direction: 'outbound',
-    sender_type: 'agent',
-    status: 'read',
-    created_at: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
-  },
-  {
-    id: '5',
-    body: 'Great, thank you! Will someone call me before delivery?',
-    direction: 'inbound',
-    sender_type: 'contact',
-    status: 'delivered',
-    created_at: new Date(Date.now() - 1000 * 60 * 10).toISOString(),
-  },
-  {
-    id: '6',
-    body: 'Yes, the delivery driver will call you 30 minutes before arrival.',
-    direction: 'outbound',
-    sender_type: 'agent',
-    status: 'read',
-    created_at: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
-  },
-  {
-    id: '7',
-    body: 'Perfect, thanks for your help!',
-    direction: 'inbound',
-    sender_type: 'contact',
-    status: 'delivered',
-    created_at: new Date(Date.now() - 1000 * 60 * 2).toISOString(),
-  },
-];
 
 // =============================================================================
 // STATUS BADGE COMPONENT
@@ -134,17 +46,17 @@ const mockMessages: ChatMessage[] = [
 
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
-    open: 'bg-green-500/20 text-green-400 border-green-500/30',
-    pending: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-    closed: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
-    sent: 'bg-blue-500/20 text-blue-400',
-    delivered: 'bg-green-500/20 text-green-400',
-    read: 'bg-green-500/20 text-green-400',
-    failed: 'bg-red-500/20 text-red-400',
+    open: 'bg-green-500/20 text-green-400 border-green-500/50 shadow-[0_0_10px_rgba(34,197,94,0.2)]',
+    pending: 'bg-amber-500/20 text-amber-400 border-amber-500/50 shadow-[0_0_10px_rgba(245,158,11,0.2)]',
+    closed: 'bg-slate-500/20 text-slate-400 border-slate-500/50',
+    sent: 'bg-blue-500/20 text-blue-400 border-blue-500/50',
+    delivered: 'bg-green-500/20 text-green-400 border-green-500/50',
+    read: 'bg-green-500/20 text-green-400 border-green-500/50',
+    failed: 'bg-red-500/20 text-red-400 border-red-500/50',
   };
   
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${styles[status] || styles.pending}`}>
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${styles[status] || styles.pending}`}>
       {status}
     </span>
   );
@@ -176,10 +88,40 @@ export default function DashboardPage() {
   // SSE connection for real-time messages
   const { messages: sseMessages, connection, disconnect, reconnect } = useSSE('/api/chats/stream');
   
-  // Local state
-  const [sessions] = useState<ChatSession[]>(mockSessions);
-  const [activeSessionId, setActiveSessionId] = useState<string>(mockSessions[0]?.id || '');
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(mockMessages);
+  // Fetch live sessions
+  const { data: rawSessions } = useSWR('/api/chats/sessions', fetcher, { refreshInterval: 5000 });
+  const sessions: ChatSession[] = (rawSessions || []).map((s: any) => ({
+    id: s.id,
+    contact_name: s.contact?.display_name || 'Unknown Contact',
+    contact_wa_id: s.contact?.wa_id || '',
+    status: s.status,
+    last_message: s.summary || 'No recent message',
+    last_message_at: s.last_message_at || s.created_at,
+    unread_count: 0,
+    assigned_agent: s.assigned_agent?.full_name,
+  }));
+  
+  const [activeSessionId, setActiveSessionId] = useState<string>('');
+  
+  // Set first session active by default
+  useEffect(() => {
+    if (sessions.length > 0 && !activeSessionId) {
+      setActiveSessionId(sessions[0].id);
+    }
+  }, [sessions, activeSessionId]);
+
+  // Fetch live messages for active session
+  const { data: rawMessages } = useSWR(activeSessionId ? `/api/chats/sessions/${activeSessionId}/messages` : null, fetcher);
+  
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  
+  // Sync messages from API
+  useEffect(() => {
+    if (rawMessages) {
+      setChatMessages(rawMessages);
+    }
+  }, [rawMessages, activeSessionId]);
+
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -209,23 +151,45 @@ export default function DashboardPage() {
   }, [chatMessages]);
   
   // Handle send message
-  const handleSendMessage = useCallback(() => {
-    if (!inputText.trim()) return;
+  const handleSendMessage = useCallback(async () => {
+    if (!inputText.trim() || !activeSessionId) return;
     
-    const newMessage: ChatMessage = {
-      id: `msg-${Date.now()}`,
-      body: inputText.trim(),
-      direction: 'outbound',
-      sender_type: 'agent',
-      status: 'sent',
-      created_at: new Date().toISOString(),
-    };
-    
-    setChatMessages(prev => [...prev, newMessage]);
+    const activeSession = sessions.find(s => s.id === activeSessionId);
+    if (!activeSession) return;
+
+    const messageText = inputText.trim();
     setInputText('');
     setIsTyping(false);
+    
+    // Optimistic UI update
+    const optimisticMessage: ChatMessage = {
+      id: `optimistic-${Date.now()}`,
+      body: messageText,
+      direction: 'outbound',
+      sender_type: 'agent',
+      status: 'sending',
+      created_at: new Date().toISOString(),
+    };
+    setChatMessages(prev => [...prev, optimisticMessage]);
+    
+    try {
+      await fetch('/api/chats/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone_number_id: 'default', // Using a default for now
+          recipient_wa_id: activeSession.contact_wa_id,
+          body: messageText,
+          preview_url: false
+        })
+      });
+      // The SSE connection should update the UI with the confirmed message.
+    } catch (error) {
+      console.error('Failed to send message:', error);
+    }
+    
     inputRef.current?.focus();
-  }, [inputText]);
+  }, [inputText, activeSessionId, sessions]);
   
   // Handle key press (Enter to send)
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -247,15 +211,15 @@ export default function DashboardPage() {
   };
   
   return (
-    <div className="h-screen flex flex-col bg-anfa-dark">
+    <div className="h-screen flex flex-col bg-slate-950">
       {/* Top Navigation Bar */}
-      <header className="h-14 border-b border-anfa-border bg-anfa-panel/80 backdrop-blur-md flex items-center px-4 justify-between flex-shrink-0">
+      <header className="h-14 border-b border-slate-800 bg-slate-900/50 backdrop-blur-10 flex items-center px-4 justify-between flex-shrink-0">
         <div className="flex items-center gap-4">
           <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
             <div className="w-7 h-7 rounded-md bg-primary-600 flex items-center justify-center">
               <span className="text-white font-bold text-xs">A</span>
             </div>
-            <span className="font-semibold text-anfa-text text-sm hidden sm:block">ANFA Dashboard</span>
+            <span className="font-semibold text-slate-100 text-sm hidden sm:block">ANFA Dashboard</span>
           </Link>
           
           <div className="h-6 w-px bg-anfa-border mx-2" />
@@ -263,16 +227,16 @@ export default function DashboardPage() {
           {/* Stats */}
           <div className="flex items-center gap-4 text-xs">
             <div className="flex items-center gap-1.5">
-              <span className="text-anfa-muted">Active:</span>
+              <span className="text-slate-400">Active:</span>
               <span className="text-green-400 font-medium">{stats.openSessions}</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="text-anfa-muted">Pending:</span>
+              <span className="text-slate-400">Pending:</span>
               <span className="text-yellow-400 font-medium">{stats.pendingSessions}</span>
             </div>
             {stats.totalUnread > 0 && (
               <div className="flex items-center gap-1.5">
-                <span className="text-anfa-muted">Unread:</span>
+                <span className="text-slate-400">Unread:</span>
                 <span className="bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full font-medium">
                   {stats.totalUnread}
                 </span>
@@ -299,7 +263,7 @@ export default function DashboardPage() {
             <div className="w-7 h-7 rounded-full bg-primary-700 flex items-center justify-center text-xs font-medium text-white">
               A
             </div>
-            <span className="text-sm text-anfa-text hidden sm:block">Agent</span>
+            <span className="text-sm text-slate-100 hidden sm:block">Agent</span>
           </div>
         </div>
       </header>
@@ -307,16 +271,16 @@ export default function DashboardPage() {
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* Sidebar - Session List */}
-        <aside className="w-72 border-r border-anfa-border bg-anfa-panel/30 flex flex-col flex-shrink-0">
+        <aside className="w-72 border-r border-slate-800 bg-slate-900/50 backdrop-blur-10 flex flex-col flex-shrink-0">
           {/* Search */}
-          <div className="p-3 border-b border-anfa-border">
+          <div className="p-3 border-b border-slate-800">
             <div className="relative">
               <input
                 type="text"
                 placeholder="Search conversations..."
-                className="w-full pl-9 pr-3 py-2 rounded-lg bg-anfa-dark border border-anfa-border text-sm text-anfa-text placeholder-anfa-muted focus:outline-none focus:border-primary-600 transition-colors"
+                className="w-full pl-9 pr-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-sm text-slate-100 placeholder-anfa-muted focus:outline-none focus:border-primary-600 transition-colors"
               />
-              <svg className="w-4 h-4 text-anfa-muted absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
             </div>
@@ -328,13 +292,13 @@ export default function DashboardPage() {
               <button
                 key={session.id}
                 onClick={() => setActiveSessionId(session.id)}
-                className={`w-full px-4 py-3 flex items-start gap-3 text-left hover:bg-anfa-panel/50 transition-colors border-b border-anfa-border/50 ${
-                  activeSessionId === session.id ? 'bg-anfa-panel/80 border-l-2 border-l-primary-500' : 'border-l-2 border-l-transparent'
+                className={`w-full px-4 py-3 flex items-start gap-3 text-left hover:bg-anfa-panel/50 transition-colors border-b border-slate-800/50 ${
+                  activeSessionId === session.id ? 'bg-slate-900/50 backdrop-blur-10 border-l-2 border-l-primary-500' : 'border-l-2 border-l-transparent'
                 }`}
               >
                 {/* Avatar */}
                 <div className="relative flex-shrink-0">
-                  <div className="w-10 h-10 rounded-full bg-anfa-border flex items-center justify-center text-sm font-medium text-anfa-muted">
+                  <div className="w-10 h-10 rounded-full bg-anfa-border flex items-center justify-center text-sm font-medium text-slate-400">
                     {session.contact_name.charAt(0)}
                   </div>
                   {session.status === 'open' && (
@@ -345,14 +309,14 @@ export default function DashboardPage() {
                 {/* Content */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-0.5">
-                    <span className="text-sm font-medium text-anfa-text truncate">
+                    <span className="text-sm font-medium text-slate-100 truncate">
                       {session.contact_name}
                     </span>
-                    <span className="text-xs text-anfa-muted flex-shrink-0 ml-2">
+                    <span className="text-xs text-slate-400 flex-shrink-0 ml-2" suppressHydrationWarning>
                       {formatDistanceToNow(new Date(session.last_message_at), { addSuffix: false })}
                     </span>
                   </div>
-                  <p className="text-xs text-anfa-muted truncate">
+                  <p className="text-xs text-slate-400 truncate">
                     {session.last_message}
                   </p>
                   <div className="flex items-center gap-2 mt-1.5">
@@ -363,7 +327,7 @@ export default function DashboardPage() {
                       </span>
                     )}
                     {session.assigned_agent && (
-                      <span className="text-xs text-anfa-muted">
+                      <span className="text-xs text-slate-400">
                         @{session.assigned_agent}
                       </span>
                     )}
@@ -379,16 +343,16 @@ export default function DashboardPage() {
           {activeSession ? (
             <>
               {/* Chat Header */}
-              <div className="h-14 border-b border-anfa-border bg-anfa-panel/30 flex items-center px-4 justify-between flex-shrink-0">
+              <div className="h-14 border-b border-slate-800 bg-slate-900/50 backdrop-blur-10 flex items-center px-4 justify-between flex-shrink-0">
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-anfa-border flex items-center justify-center text-xs font-medium text-anfa-muted">
+                  <div className="w-8 h-8 rounded-full bg-anfa-border flex items-center justify-center text-xs font-medium text-slate-400">
                     {activeSession.contact_name.charAt(0)}
                   </div>
                   <div>
-                    <div className="text-sm font-medium text-anfa-text">
+                    <div className="text-sm font-medium text-slate-100">
                       {activeSession.contact_name}
                     </div>
-                    <div className="text-xs text-anfa-muted">
+                    <div className="text-xs text-slate-400">
                       {activeSession.contact_wa_id}
                     </div>
                   </div>
@@ -396,7 +360,7 @@ export default function DashboardPage() {
                 
                 <div className="flex items-center gap-2">
                   <StatusBadge status={activeSession.status} />
-                  <button className="p-2 rounded-lg hover:bg-anfa-panel transition-colors text-anfa-muted">
+                  <button className="p-2 rounded-lg hover:bg-anfa-panel transition-colors text-slate-400">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
                     </svg>
@@ -413,9 +377,9 @@ export default function DashboardPage() {
                     style={{ animationDelay: `${index * 50}ms` }}
                   >
                     <div className={`max-w-[70%] ${message.direction === 'outbound' ? 'message-outbound' : 'message-inbound'} p-3`}>
-                      <p className="text-sm text-anfa-text whitespace-pre-wrap">{message.body}</p>
+                      <p className="text-sm text-slate-100 whitespace-pre-wrap">{message.body}</p>
                       <div className="flex items-center justify-end gap-1.5 mt-1.5">
-                        <span className="text-xs text-anfa-muted">
+                        <span className="text-xs text-slate-400" suppressHydrationWarning>
                           {formatDistanceToNow(new Date(message.created_at), { addSuffix: false })}
                         </span>
                         {message.direction === 'outbound' && (
@@ -445,9 +409,9 @@ export default function DashboardPage() {
               </div>
               
               {/* Input Area */}
-              <div className="border-t border-anfa-border bg-anfa-panel/30 p-4 flex-shrink-0">
+              <div className="border-t border-slate-800 bg-slate-900/50 backdrop-blur-10 p-4 flex-shrink-0">
                 <div className="flex items-end gap-3">
-                  <button className="p-2.5 rounded-xl hover:bg-anfa-panel text-anfa-muted transition-colors flex-shrink-0">
+                  <button className="p-2.5 rounded-xl hover:bg-anfa-panel text-slate-400 transition-colors flex-shrink-0">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                     </svg>
@@ -464,7 +428,7 @@ export default function DashboardPage() {
                       onKeyDown={handleKeyDown}
                       placeholder="Type a message..."
                       rows={1}
-                      className="w-full px-4 py-2.5 rounded-xl bg-anfa-dark border border-anfa-border text-sm text-anfa-text placeholder-anfa-muted focus:outline-none focus:border-primary-600 transition-colors resize-none max-h-32"
+                      className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-slate-100 placeholder-anfa-muted focus:outline-none focus:border-primary-600 transition-colors resize-none max-h-32"
                       style={{ minHeight: '40px' }}
                     />
                   </div>
@@ -485,13 +449,13 @@ export default function DashboardPage() {
             /* Empty State */
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center">
-                <div className="w-16 h-16 rounded-2xl bg-anfa-panel border border-anfa-border flex items-center justify-center mx-auto mb-4">
-                  <svg className="w-8 h-8 text-anfa-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-16 h-16 rounded-2xl bg-anfa-panel border border-slate-800 flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                   </svg>
                 </div>
-                <h3 className="text-lg font-medium text-anfa-text mb-2">Select a conversation</h3>
-                <p className="text-sm text-anfa-muted max-w-xs">
+                <h3 className="text-lg font-medium text-slate-100 mb-2">Select a conversation</h3>
+                <p className="text-sm text-slate-400 max-w-xs">
                   Choose a chat from the sidebar to start messaging
                 </p>
               </div>
@@ -500,47 +464,47 @@ export default function DashboardPage() {
         </main>
         
         {/* Right Panel - Contact Info */}
-        <aside className="w-64 border-l border-anfa-border bg-anfa-panel/30 hidden xl:flex flex-col flex-shrink-0">
+        <aside className="w-64 border-l border-slate-800 bg-slate-900/50 backdrop-blur-10 hidden xl:flex flex-col flex-shrink-0">
           {activeSession ? (
             <>
-              <div className="p-4 border-b border-anfa-border text-center">
-                <div className="w-16 h-16 rounded-full bg-anfa-border flex items-center justify-center text-xl font-medium text-anfa-muted mx-auto mb-3">
+              <div className="p-4 border-b border-slate-800 text-center">
+                <div className="w-16 h-16 rounded-full bg-anfa-border flex items-center justify-center text-xl font-medium text-slate-400 mx-auto mb-3">
                   {activeSession.contact_name.charAt(0)}
                 </div>
-                <h3 className="text-sm font-medium text-anfa-text">{activeSession.contact_name}</h3>
-                <p className="text-xs text-anfa-muted mt-1">{activeSession.contact_wa_id}</p>
+                <h3 className="text-sm font-medium text-slate-100">{activeSession.contact_name}</h3>
+                <p className="text-xs text-slate-400 mt-1">{activeSession.contact_wa_id}</p>
                 <StatusBadge status={activeSession.status} />
               </div>
               
               <div className="p-4 space-y-4">
                 <div>
-                  <h4 className="text-xs font-medium text-anfa-muted uppercase tracking-wider mb-2">Session Info</h4>
+                  <h4 className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Session Info</h4>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-anfa-muted">Status</span>
+                      <span className="text-slate-400">Status</span>
                       <StatusBadge status={activeSession.status} />
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-anfa-muted">Assigned</span>
-                      <span className="text-anfa-text">{activeSession.assigned_agent || 'Unassigned'}</span>
+                      <span className="text-slate-400">Assigned</span>
+                      <span className="text-slate-100">{activeSession.assigned_agent || 'Unassigned'}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-anfa-muted">Messages</span>
-                      <span className="text-anfa-text">{chatMessages.length}</span>
+                      <span className="text-slate-400">Messages</span>
+                      <span className="text-slate-100">{chatMessages.length}</span>
                     </div>
                   </div>
                 </div>
                 
-                <div className="border-t border-anfa-border pt-4">
-                  <h4 className="text-xs font-medium text-anfa-muted uppercase tracking-wider mb-2">Actions</h4>
+                <div className="border-t border-slate-800 pt-4">
+                  <h4 className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Actions</h4>
                   <div className="space-y-2">
-                    <button className="w-full text-left px-3 py-2 rounded-lg hover:bg-anfa-panel text-sm text-anfa-text transition-colors">
+                    <button className="w-full text-left px-3 py-2 rounded-lg hover:bg-anfa-panel text-sm text-slate-100 transition-colors">
                       Assign to Agent
                     </button>
-                    <button className="w-full text-left px-3 py-2 rounded-lg hover:bg-anfa-panel text-sm text-anfa-text transition-colors">
+                    <button className="w-full text-left px-3 py-2 rounded-lg hover:bg-anfa-panel text-sm text-slate-100 transition-colors">
                       Mark as Priority
                     </button>
-                    <button className="w-full text-left px-3 py-2 rounded-lg hover:bg-anfa-panel text-sm text-anfa-text transition-colors">
+                    <button className="w-full text-left px-3 py-2 rounded-lg hover:bg-anfa-panel text-sm text-slate-100 transition-colors">
                       Add Tag
                     </button>
                     <button className="w-full text-left px-3 py-2 rounded-lg hover:bg-red-500/10 text-sm text-red-400 transition-colors">
@@ -552,7 +516,7 @@ export default function DashboardPage() {
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center">
-              <p className="text-sm text-anfa-muted">Select a conversation</p>
+              <p className="text-sm text-slate-400">Select a conversation</p>
             </div>
           )}
         </aside>

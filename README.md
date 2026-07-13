@@ -33,8 +33,11 @@ The platform enforces a strict "Local-First" architecture.
 2. **Configure Environment:**
    ```bash
    cp .env.example .env
-   # Edit .env with your Meta App credentials and database secrets
+   # Edit .env with your Meta App credentials, database secrets, and Dashboard credentials
    ```
+
+   **Dashboard Access (Deployers):**
+   To unlock the zero-configuration dashboard, ensure you set `ADMIN_USERNAME` and `ADMIN_PASSWORD` in your `.env` file. This uses strict constant-time comparison for basic authentication, which is safe to use behind the provided HTTPS proxy.
 
 3. **Launch the Stack:**
    ```bash

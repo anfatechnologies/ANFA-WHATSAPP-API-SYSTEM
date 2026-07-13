@@ -474,3 +474,39 @@ class AuditLog(Base):
 
     def __repr__(self) -> str:
         return f"<AuditLog(action={self.action}, resource={self.resource_type})>"
+
+
+class SystemSettings(Base):
+    """Global System Settings configuration with Encrypted Secrets."""
+    
+    __tablename__ = "system_settings"
+    
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, default=1,
+        comment="Singleton pattern: Always use ID=1"
+    )
+    
+    # Category 1: Meta Business Configuration
+    whatsapp_business_account_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    phone_number_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    permanent_access_token: Mapped[Optional[str]] = mapped_column(EncryptedText, nullable=True)
+    app_secret: Mapped[Optional[str]] = mapped_column(EncryptedText, nullable=True)
+
+    # Category 2: Automation & Workflow
+    n8n_webhook_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    auto_reply_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    default_reply_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Category 3: System & Privacy
+    data_retention_days: Mapped[int] = mapped_column(Integer, default=90, nullable=False)
+    enable_logging: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=datetime.datetime.now(datetime.timezone.utc),
+        onupdate=datetime.datetime.now(datetime.timezone.utc)
+    )
+
+    def __repr__(self) -> str:
+        return f"<SystemSettings(id={self.id}, updated_at={self.updated_at})>"
+

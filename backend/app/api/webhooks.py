@@ -139,8 +139,12 @@ async def receive_webhook(
                             value,
                         )
                     except redis.exceptions.RedisError as e:
-                        logger.critical(f"Redis queue failure, payload lost: {e}")
-                        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Queue unavailable")
+                        logger.critical(f"Redis queue failure, falling back to DLQ: {e}")
+                        # DLQ Implementation: Save to a Redis Stream to prevent data loss
+                        # Why: If the ARQ worker queue is full or unavailable, we must not drop the webhook payload.
+                        # How: We push it to a dead-letter stream which a recovery script can process later.
+                        dlq_payload = json.dumps({"phone_number_id": phone_number_id, "value": value})
+                        await redis_pool.xadd("dlq:webhook_failures", {"payload": dlq_payload, "error": str(e)})
 
         # Step 5: Immediately return 202 to prevent Meta timeout
         return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content={"status": "accepted"})

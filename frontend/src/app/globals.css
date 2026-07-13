@@ -64,13 +64,15 @@ html, body {
 .message-inbound {
   background: var(--anfa-panel);
   border: 1px solid var(--anfa-border);
-  border-radius: 12px 12px 12px 4px;
+  border-radius: 1rem 1rem 1rem 0.25rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
 }
 
 .message-outbound {
   background: #1e3a5f;
   border: 1px solid #2563eb;
-  border-radius: 12px 12px 4px 12px;
+  border-radius: 1rem 1rem 0.25rem 1rem;
+  box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.1), 0 2px 4px -1px rgba(37, 99, 235, 0.06);
 }
 
 /* Animations */

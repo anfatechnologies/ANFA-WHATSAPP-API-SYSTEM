@@ -16,6 +16,7 @@ from app.schemas.pydantic_models import (
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.services.object_storage import ObjectStorageService
+from app.core.crypto import crypto_service
 import redis.asyncio as redis
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,15 @@ async def process_webhook_payload(
         except Exception as e:
             await db.rollback()
             logger.error(f"Failed to process webhook payload: {e}", exc_info=True)
+            # DLQ Implementation for Worker processing failures
+            # Why: Ensure that if a payload continually fails even after retries, we save it for manual inspection or replay.
+            # How: Pushed to a Redis dead-letter queue specific to processing errors.
+            dlq_entry = {
+                "phone_number_id": phone_number_id,
+                "payload": json.dumps(value),
+                "error": str(e)
+            }
+            await ctx["redis_pubsub"].xadd("dlq:worker_processing_failures", dlq_entry)
             raise
 
 
@@ -209,10 +219,11 @@ async def _process_incoming_message(
         sender_type=MessageSenderTypeSchema.CONTACT,
         sender_id=contact.id,
         message_id=message_id,
-        body=body,
+        # DATA SOVEREIGNTY: Encrypt sensitive message contents at rest
+        body=crypto_service.encrypt(body) if body else None,
         media_url=media_url,
         media_type=media_type,
-        media_caption=media_caption,
+        media_caption=crypto_service.encrypt(media_caption) if media_caption else None,
         status=MessageStatusSchema.PROCESSED,
     )
     db.add(message)

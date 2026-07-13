@@ -4,6 +4,8 @@
 
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import Providers from '@/providers/query-provider';
+import { Toaster } from 'sonner';
 
 // =============================================================================
 // METADATA
@@ -215,7 +217,10 @@ export default function RootLayout({
         <link rel="alternate" type="text/plain" href="/llms.txt" title="LLMs file" />
       </head>
       <body className="min-h-screen bg-anfa-dark text-anfa-text antialiased">
-        {children}
+        <Providers>
+          {children}
+        </Providers>
+        <Toaster theme="dark" position="top-right" />
       </body>
     </html>
   );
