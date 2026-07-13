@@ -12,7 +12,8 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState('api');
   
   // Local state for the settings categories
-  const [apiConfig, setApiConfig] = useState({ appId: '', appSecret: '', accessToken: '' });
+  // H4 FIX: Added businessAccountId — was missing from UI despite being in DB schema
+  const [apiConfig, setApiConfig] = useState({ businessAccountId: '', appId: '', appSecret: '', accessToken: '' });
   const [automationConfig, setAutomationConfig] = useState({ n8n_webhook_url: '', auto_reply_enabled: false, default_reply_message: '' });
   const [privacyConfig, setPrivacyConfig] = useState({ data_retention_days: 90, enable_logging: true });
   const [appearanceConfig, setAppearanceConfig] = useState({ themeMode: 'system', notificationsEnabled: true, language: 'en' });
@@ -24,6 +25,8 @@ export default function SettingsPage() {
   useEffect(() => {
     if (settingsData) {
        setApiConfig({
+         // H4 FIX: populate Business Account ID from backend
+         businessAccountId: settingsData.whatsapp_business_account_id || '',
          appId: settingsData.phone_number_id || '',
          appSecret: settingsData.app_secret || '',
          accessToken: settingsData.access_token || '',
@@ -44,7 +47,8 @@ export default function SettingsPage() {
     try {
       let payload = {};
       if (category === 'api') {
-        payload = { api_config: { appId: apiConfig.appId, appSecret: apiConfig.appSecret, accessToken: apiConfig.accessToken } };
+        // H4 FIX: include businessAccountId in payload
+        payload = { api_config: { businessAccountId: apiConfig.businessAccountId, appId: apiConfig.appId, appSecret: apiConfig.appSecret, accessToken: apiConfig.accessToken } };
       } else if (category === 'automation') {
         payload = { automation: automationConfig };
       } else if (category === 'privacy') {
@@ -103,10 +107,25 @@ export default function SettingsPage() {
               <div className="space-y-6">
                 <h2 className="text-xl font-semibold flex items-center gap-2"><Zap className="w-5 h-5 text-indigo-400"/> Meta API Configuration</h2>
                 <div className="p-6 rounded-xl border border-slate-800 bg-slate-900/50 backdrop-blur-10 space-y-4">
+                  {/* H4 FIX: Added WhatsApp Business Account ID field — was missing from UI */}
+                  <div className="space-y-2">
+                    <label className="text-sm text-slate-400">WhatsApp Business Account ID</label>
+                    <div className="flex gap-2">
+                      <input 
+                        id="settings-business-account-id"
+                        type="text" 
+                        value={apiConfig.businessAccountId}
+                        onChange={e => setApiConfig({...apiConfig, businessAccountId: e.target.value})}
+                        className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 outline-none" 
+                        placeholder="e.g. 102938475600123" 
+                      />
+                    </div>
+                  </div>
                   <div className="space-y-2">
                     <label className="text-sm text-slate-400">Phone Number ID</label>
                     <div className="flex gap-2">
                       <input 
+                        id="settings-phone-number-id"
                         type="text" 
                         value={apiConfig.appId}
                         onChange={e => setApiConfig({...apiConfig, appId: e.target.value})}
@@ -119,6 +138,7 @@ export default function SettingsPage() {
                     <label className="text-sm text-slate-400">App Secret</label>
                     <div className="flex gap-2">
                       <input 
+                        id="settings-app-secret"
                         type="password" 
                         value={apiConfig.appSecret}
                         onChange={e => setApiConfig({...apiConfig, appSecret: e.target.value})}
@@ -131,6 +151,7 @@ export default function SettingsPage() {
                     <label className="text-sm text-slate-400">Permanent Access Token</label>
                     <div className="flex gap-2">
                       <input 
+                        id="settings-access-token"
                         type="password" 
                         value={apiConfig.accessToken}
                         onChange={e => setApiConfig({...apiConfig, accessToken: e.target.value})}
@@ -141,6 +162,7 @@ export default function SettingsPage() {
                   </div>
                   <div className="pt-2">
                      <button 
+                        id="settings-save-api"
                         onClick={() => handleUpdateSettings('api')}
                         className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-medium text-white transition-colors"
                      >

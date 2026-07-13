@@ -17,6 +17,8 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.services.object_storage import ObjectStorageService
 from app.core.crypto import crypto_service
+from app.services.settings_service import SettingsService
+from app.workers.outbound import send_text_message_task
 import redis.asyncio as redis
 
 logger = logging.getLogger(__name__)
@@ -59,6 +61,8 @@ async def process_webhook_payload(
     
     async with get_db_session(read_only=False) as db:
         try:
+            sys_settings = await SettingsService.get_settings(db)
+            
             # Process contacts metadata
             contacts_data = value.get("contacts", [])
             contacts_map = {}
@@ -73,11 +77,11 @@ async def process_webhook_payload(
             messages_data = value.get("messages", [])
             for msg_data in messages_data:
                 message = await _process_incoming_message(
-                    db, phone_number_id, msg_data, contacts_map, storage_service, ctx["redis_pubsub"]
+                    db, phone_number_id, msg_data, contacts_map, storage_service, ctx["redis_pubsub"], sys_settings, ctx
                 )
                 # FEATURE: Dispatch to n8n if enabled and a message was created
-                if message and settings.N8N_WEBHOOK_URL:
-                    await _dispatch_to_n8n(ctx, phone_number_id, msg_data, message)
+                if message and sys_settings.n8n_webhook_url:
+                    await _dispatch_to_n8n(ctx, phone_number_id, msg_data, message, sys_settings.n8n_webhook_url)
             
             # Process status updates
             statuses_data = value.get("statuses", [])
@@ -149,7 +153,9 @@ async def _process_incoming_message(
     msg_data: Dict[str, Any],
     contacts_map: Dict[str, Contact],
     storage_service: ObjectStorageService,
-    redis_pubsub: redis.Redis
+    redis_pubsub: redis.Redis,
+    sys_settings: Any,
+    ctx: Dict[str, Any]
 ) -> Message | None:
     from_wa_id = msg_data.get("from")
     message_id = msg_data.get("id")
@@ -208,10 +214,12 @@ async def _process_incoming_message(
     )
     session = result.scalar_one_or_none()
     
+    is_new_session = False
     if not session:
         session = ChatSession(contact_id=contact.id, status=SessionStatusSchema.PENDING)
         db.add(session)
         await db.flush()
+        is_new_session = True
         
     message = Message(
         session_id=session.id,
@@ -247,6 +255,20 @@ async def _process_incoming_message(
         }
     }))
 
+    # FIX C3: Auto-Reply feature execution
+    if is_new_session and sys_settings.auto_reply_enabled and sys_settings.default_reply_message:
+        # Enqueue outbound message directly using the context redis pool
+        try:
+            await ctx["redis"].enqueue_job(
+                "send_text_message_task",
+                phone_number_id,
+                from_wa_id,
+                sys_settings.default_reply_message
+            )
+            logger.info(f"Auto-reply enqueued for new session with {from_wa_id}")
+        except Exception as e:
+            logger.error(f"Failed to enqueue auto-reply for {from_wa_id}: {e}")
+
     return message
 
 
@@ -279,6 +301,7 @@ async def _dispatch_to_n8n(
     phone_number_id: str,
     msg_data: Dict[str, Any],
     message: Message,
+    n8n_webhook_url: str
 ) -> None:
     """Dispatcher to trigger an n8n automation workflow with DLQ support.
     If n8n is down or times out, the message is placed in a Dead-Letter Queue (Redis Stream)
@@ -308,7 +331,7 @@ async def _dispatch_to_n8n(
         # Enforce strict timeout specifically for n8n API call
         timeout = httpx.Timeout(5.0)
         response = await http_client.post(
-            settings.N8N_WEBHOOK_URL,
+            n8n_webhook_url,
             json=payload,
             headers={
                 "Content-Type": "application/json",
