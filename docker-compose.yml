@@ -131,6 +131,39 @@ services:
     read_only: true
     tmpfs:
     - /tmp
+  outbound_worker:
+    build:
+      context: ./backend
+    container_name: anfa-outbound-worker
+    restart: unless-stopped
+    security_opt:
+    - no-new-privileges:true
+    # Runs the outbound worker that actually sends WhatsApp messages via Meta Graph API.
+    # This handles send_text_message_task, send_whatsapp_message_job, send_template_message_task
+    # with sliding-window rate limiting and 429 backoff built in.
+    command: arq app.workers.outbound.WorkerConfig
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+    - .env
+    environment:
+    - DATABASE_URL=postgresql+asyncpg://anfa_admin_user:${DB_PASSWORD}@postgres:5432/anfa_whatsapp_crm_db
+    - REDIS_HOST=redis
+    - REDIS_PORT=6379
+    - REDIS_PASSWORD=${REDIS_PASSWORD}
+    networks:
+    - anfa-internal-net
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    read_only: true
+    tmpfs:
+    - /tmp
   n8n:
     image: n8nio/n8n:latest
     container_name: anfa-n8n-automation
@@ -169,7 +202,11 @@ services:
     env_file:
     - .env
     environment:
-    - NEXT_PUBLIC_API_URL=http://backend:4000
+    # H8 Fix: Empty string = use relative paths through nginx (same origin).
+    # The browser cannot resolve 'backend:4000' (Docker-internal hostname).
+    # nginx proxies /api/* to the backend container, so relative paths work correctly.
+    # For production with a real domain, set this to: https://your-domain.com
+    - NEXT_PUBLIC_API_URL=
     networks:
     - anfa-internal-net
     deploy:

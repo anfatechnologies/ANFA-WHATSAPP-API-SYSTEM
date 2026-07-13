@@ -85,10 +85,12 @@ class MessageSenderType(str, enum.Enum):
 
 class MessageStatus(str, enum.Enum):
     """Outbound message delivery status tracking."""
+    QUEUED = "queued"      # Saved to DB, waiting for ARQ worker to send to Meta
     SENT = "sent"         # Message sent to Meta API
     DELIVERED = "delivered"  # Delivered to recipient device
     READ = "read"         # Read by recipient
     FAILED = "failed"     # Delivery failed
+    PROCESSED = "processed"  # Inbound message processed by worker
 
 
 class AgentRole(str, enum.Enum):

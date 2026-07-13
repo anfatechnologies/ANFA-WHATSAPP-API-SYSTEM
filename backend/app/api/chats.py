@@ -42,9 +42,19 @@ async def get_session_messages(session_id: str, db: AsyncSession = Depends(get_d
     return list(result.scalars().all())
 
 @router.post("/send")
-async def send_message(payload: OutboundTextMessage, db: AsyncSession = Depends(get_db)):
-    """Send an outbound message from agent to contact."""
-    # Find the active session for this recipient (simplification: assume there is one open session)
+async def send_message(
+    payload: OutboundTextMessage,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Send an outbound message from agent to contact via Meta WhatsApp API.
+
+    Flow:
+    1. Find the active session for this recipient.
+    2. Save a DB record with status=QUEUED (not SENT — that happens via status webhook).
+    3. Enqueue a real ARQ job to send the message through Meta Graph API.
+    4. Return the pending message so the UI can optimistically show it.
+    """
     result = await db.execute(
         select(ChatSession)
         .join(ChatSession.contact)
@@ -53,29 +63,47 @@ async def send_message(payload: OutboundTextMessage, db: AsyncSession = Depends(
         .limit(1)
     )
     session = result.scalars().first()
-    
+
     if not session:
         raise HTTPException(status_code=404, detail="No active session found for this contact")
 
-    # 1. Save message to DB
+    # 1. Save message to DB — status starts as QUEUED until Meta confirms
+    import datetime
     new_message = Message(
         session_id=session.id,
         direction=MessageDirection.OUTBOUND,
         sender_type=MessageSenderType.AGENT,
-        message_id=f"wamid.{uuid.uuid4()}", # Mock Meta message ID for now
+        # Temporary local ID — real wamid is stored when Meta confirms via status webhook
+        message_id=f"local.{uuid.uuid4()}",
         body=payload.body,
-        status=MessageStatus.SENT
+        status=MessageStatus.QUEUED,
     )
     db.add(new_message)
-    
-    # Update session's last_message_at
-    import datetime
+
     session.last_message_at = datetime.datetime.now(datetime.timezone.utc)
-    
     await db.commit()
     await db.refresh(new_message)
-    
-    # 2. Trigger background task (ARQ) to send to Meta API
-    # In a real setup, we would dispatch this to ARQ.
-    
-    return {"status": "sent", "message_id": new_message.message_id}
+
+    # 2. Enqueue real outbound job — send_text_message_task handles Meta Graph API,
+    #    rate limiting, 429 backoff, and DLQ fallback.
+    arq_pool = getattr(request.app.state, "arq_pool", None)
+    if arq_pool:
+        await arq_pool.enqueue_job(
+            "send_text_message_task",
+            payload.phone_number_id,  # which WhatsApp number to send from
+            payload.recipient_wa_id,  # recipient phone number
+            payload.body,
+        )
+    else:
+        # If ARQ pool is unavailable log critically — do NOT silently drop
+        import logging
+        logging.getLogger(__name__).critical(
+            "ARQ pool unavailable — outbound message saved to DB but NOT sent to Meta. "
+            f"message_id={new_message.message_id}"
+        )
+
+    return {
+        "status": "queued",
+        "message_id": new_message.message_id,
+        "note": "Message queued for delivery. Status will update via Meta webhook.",
+    }

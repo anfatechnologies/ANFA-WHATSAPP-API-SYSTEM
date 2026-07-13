@@ -101,38 +101,28 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
     return encoded_jwt
 
 
-async def verify_access_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security_scheme)) -> Dict[str, Any]:
-    """Verify and decode a JWT access token from the Authorization header.
-    
-    Security Rationale: Uses jose library's secure JWT decoding with signature
-    verification and expiration checking. Rejects tokens that are malformed,
-    expired, or have invalid signatures.
+def decode_jwt_token(token: str) -> Dict[str, Any]:
+    """Decode and validate a JWT token. Raises HTTPException on failure.
+
+    Extracted as a plain (non-Depends) function so it can be reused by
+    both the FastAPI dependency (verify_access_token) and any endpoint
+    that receives a token via query param (e.g. SSE /settings/live).
+    Any future changes to token validation — role checks, revocation lists,
+    audience/issuer requirements — should be made here and will apply
+    everywhere automatically.
     """
-    if not credentials:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication credentials required",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    token = credentials.credentials
     try:
-        # Decode with signature verification and expiration check
         payload = jwt.decode(
-            token, 
-            settings.SECRET_KEY, 
+            token,
+            settings.SECRET_KEY,
             algorithms=[settings.ALGORITHM]
         )
-        
-        # Validate required claims
         if "sub" not in payload:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token: missing subject claim",
             )
-        
         return payload
-        
     except jwt.ExpiredSignatureError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -145,6 +135,22 @@ async def verify_access_token(credentials: Optional[HTTPAuthorizationCredentials
             detail="Invalid authentication token",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+async def verify_access_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security_scheme)) -> Dict[str, Any]:
+    """Verify and decode a JWT access token from the Authorization header.
+
+    Security Rationale: Uses jose library's secure JWT decoding with signature
+    verification and expiration checking. Rejects tokens that are malformed,
+    expired, or have invalid signatures.
+    """
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication credentials required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return decode_jwt_token(credentials.credentials)
 
 
 # =============================================================================

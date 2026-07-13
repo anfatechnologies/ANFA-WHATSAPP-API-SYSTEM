@@ -349,9 +349,43 @@ async def _dispatch_to_n8n(
         await fallback_to_dlq(str(e))
 
 
+# =============================================================================
+# FEATURE: Data Retention Cleanup Job (M4)
+# =============================================================================
+
+async def cleanup_old_messages(ctx: Dict[str, Any], retention_days: int) -> None:
+    """Delete messages older than retention_days from the database.
+
+    Triggered by the settings API when data_retention_days is updated.
+    Uses a batched DELETE to avoid long-running transactions on large tables.
+
+    Args:
+        ctx: arq context
+        retention_days: Maximum age of messages to keep (in days)
+    """
+    from datetime import datetime, timezone, timedelta
+    from sqlalchemy import delete
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    logger.info(f"Data retention cleanup: deleting messages older than {cutoff.isoformat()} (retention={retention_days}d)")
+
+    async with get_db_session(read_only=False) as db:
+        try:
+            result = await db.execute(
+                delete(Message).where(Message.created_at < cutoff)
+            )
+            await db.commit()
+            deleted_count = result.rowcount
+            logger.info(f"Data retention cleanup complete: {deleted_count} messages deleted")
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Data retention cleanup failed: {e}", exc_info=True)
+            raise
+
+
 class WorkerConfig:
     redis_settings = arq_redis_settings
-    functions = [process_webhook_payload]
+    functions = [process_webhook_payload, cleanup_old_messages]
     on_startup = startup
     on_shutdown = shutdown
     max_tries = 3

@@ -32,10 +32,12 @@ class MessageSenderTypeSchema(str, Enum):
 
 
 class MessageStatusSchema(str, Enum):
+    QUEUED = "queued"
     SENT = "sent"
     DELIVERED = "delivered"
     READ = "read"
     FAILED = "failed"
+    PROCESSED = "processed"
 
 
 class AgentRoleSchema(str, Enum):

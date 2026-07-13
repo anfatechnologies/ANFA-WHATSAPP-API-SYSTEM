@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 import redis.asyncio as redis
 
@@ -15,7 +15,7 @@ from app.core.database import get_db
 from app.services.settings_service import SettingsService
 from sse_starlette.sse import EventSourceResponse
 import asyncio
-from app.core.security import verify_access_token, encrypt_redis_secret, decrypt_redis_secret, verify_admin, create_access_token
+from app.core.security import verify_access_token, encrypt_redis_secret, decrypt_redis_secret, verify_admin, create_access_token, decode_jwt_token
 from app.schemas.pydantic_models import (
     SystemSettings,
     MetaCredentialsSettings,
@@ -81,15 +81,16 @@ async def get_settings_dashboard(
 
 @router.get("/live")
 async def get_settings_live(token: str = None):
-    """SSE endpoint for streaming live settings updates to the frontend."""
+    """SSE endpoint for streaming live settings updates to the frontend.
+
+    Auth: JWT token passed as ?token= query param because the native browser
+    EventSource API cannot send custom headers. Uses shared decode_jwt_token()
+    so any future token validation changes apply here automatically.
+    """
     if not token:
         raise HTTPException(status_code=401, detail="Token required")
-    try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        if "sub" not in payload:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    # Use the shared decode function — not a hand-rolled duplicate
+    decode_jwt_token(token)  # raises HTTPException on invalid/expired token
         
     async def event_generator():
         redis_client = await SettingsService.get_redis()
@@ -113,6 +114,7 @@ async def get_settings_live(token: str = None):
 @router.post("/update")
 async def update_settings_dashboard(
     payload: dict,
+    request: Request,
     token_payload: dict = Depends(verify_access_token),
     db: AsyncSession = Depends(get_db)
 ):
@@ -147,20 +149,32 @@ async def update_settings_dashboard(
         privacy = payload["privacy"]
         if "data_retention_days" in privacy:
             updates["data_retention_days"] = int(privacy["data_retention_days"])
-            # Feature M4: Cleanup old messages when retention changes
-            # We would enqueue a cleanup task here:
-            # await arq_pool.enqueue_job("cleanup_old_messages", updates["data_retention_days"])
+            # M4 Fix: Enqueue a real cleanup job when retention policy changes
+            arq_pool = getattr(request.app.state, "arq_pool", None)
+            if arq_pool:
+                await arq_pool.enqueue_job(
+                    "cleanup_old_messages",
+                    updates["data_retention_days"]
+                )
+                logger.info(f"Enqueued cleanup_old_messages for {updates['data_retention_days']} days retention")
+            else:
+                logger.warning("ARQ pool unavailable — cleanup_old_messages not enqueued")
         if "enable_logging" in privacy:
             updates["enable_logging"] = privacy["enable_logging"]
             
-    # 4. Admin Credentials (H2 Fix)
+    # 4. Admin Credentials (H2)
     if "admin_credentials" in payload:
-        admin_creds = payload["admin_credentials"]
-        new_username = admin_creds.get("new_username")
-        new_password = admin_creds.get("new_password")
-        # Since admin creds are currently in .env, we can't update them dynamically unless we store in DB
-        # If we had an Admin model, we'd hash and update it here. For now, acknowledge the payload.
-        pass
+        # Admin credentials are stored in the environment / .env file.
+        # Dynamic runtime updates require an Admin DB table with hashed passwords.
+        # That feature is not yet implemented — returning 501 is safer than
+        # returning a fake 200 success while silently doing nothing.
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail=(
+                "Admin credential updates via the UI are not yet implemented. "
+                "Update ADMIN_USERNAME / ADMIN_PASSWORD in your .env file and restart the backend."
+            ),
+        )
 
     await SettingsService.update_settings(db, updates)
     
