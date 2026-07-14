@@ -183,8 +183,8 @@ class Contact(Base):
         String(10), nullable=True,
         comment="Preferred language code (e.g., en, ar)"
     )
-    metadata: Mapped[Optional[dict]] = mapped_column(
-        JSONB, nullable=True, default=dict,
+    extra_metadata: Mapped[Optional[dict]] = mapped_column(
+        "metadata", JSONB, nullable=True, default=dict,
         comment="Flexible JSON metadata for custom fields"
     )
     created_at: Mapped[datetime.datetime] = mapped_column(
@@ -295,12 +295,12 @@ class Message(Base):
     
     __tablename__ = "messages"
     __table_args__ = (
-        # CRITICAL: PostgreSQL range partitioning declaration
-        {"postgresql_partition_by": "RANGE (created_at)"},
         Index("ix_messages_session_id", "session_id"),
         Index("ix_messages_message_id", "message_id"),
         Index("ix_messages_created_at", "created_at"),
         Index("ix_messages_status", "status"),
+        # CRITICAL: PostgreSQL range partitioning declaration (dict must be LAST in the tuple)
+        {"postgresql_partition_by": "RANGE (created_at)"},
     )
     
     # Primary key is COMPOSITE: (id, created_at)
@@ -346,8 +346,8 @@ class Message(Base):
         default=MessageStatus.SENT, 
         nullable=False
     )
-    metadata: Mapped[Optional[dict]] = mapped_column(
-        JSONB, nullable=True, default=dict,
+    extra_metadata: Mapped[Optional[dict]] = mapped_column(
+        "metadata", JSONB, nullable=True, default=dict,
         comment="Additional message metadata (reactions, replies, etc.)"
     )
     # CRITICAL: Range partitioning requires the partition key to be part of the composite PK

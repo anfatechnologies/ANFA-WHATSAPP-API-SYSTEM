@@ -5,7 +5,7 @@ from typing import Dict, Any
 import httpx
 from arq.connections import RedisSettings
 from app.core.config import settings
-from app.core.database import get_db_session
+from app.core.database import get_db_session, init_database
 from app.models.schema import Contact, ChatSession, Message
 from app.schemas.pydantic_models import (
     MessageDirectionSchema,
@@ -32,6 +32,7 @@ arq_redis_settings = RedisSettings(
 )
 
 async def startup(ctx: Dict[str, Any]) -> None:
+    await init_database()
     ctx["storage_service"] = ObjectStorageService()
     ctx["redis_pubsub"] = redis.Redis(
         host=settings.REDIS_HOST,

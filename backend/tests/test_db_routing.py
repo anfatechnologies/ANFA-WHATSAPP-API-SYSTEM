@@ -2,6 +2,8 @@ import pytest
 from sqlalchemy import text
 from app.core.database import get_db_session
 
+pytestmark = pytest.mark.usefixtures("init_db")
+
 @pytest.mark.asyncio
 async def test_read_only_session_prevents_writes():
     """

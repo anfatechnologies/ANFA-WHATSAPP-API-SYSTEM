@@ -21,6 +21,18 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # Disable telemetry during build
 ENV NEXT_TELEMETRY_DISABLED=1
+
+# NEXT_PUBLIC_* vars are inlined into the client bundle at build time, so
+# they must be passed as build ARGs (see docker-compose.yml build.args),
+# not just as container-runtime `environment:` entries, which Next.js
+# never sees during `npm run build`.
+ARG NEXT_PUBLIC_API_URL=""
+ARG NEXT_PUBLIC_ADMIN_USERNAME="admin"
+ARG NEXT_PUBLIC_ADMIN_PASSWORD=""
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_ADMIN_USERNAME=${NEXT_PUBLIC_ADMIN_USERNAME}
+ENV NEXT_PUBLIC_ADMIN_PASSWORD=${NEXT_PUBLIC_ADMIN_PASSWORD}
+
 RUN npm run build
 
 # Production image, copy all the files and run next

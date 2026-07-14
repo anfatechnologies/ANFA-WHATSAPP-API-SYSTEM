@@ -78,10 +78,19 @@ services:
     env_file:
     - .env
     environment:
-    - DATABASE_URL=postgresql+asyncpg://anfa_admin_user:${DB_PASSWORD}@postgres:5432/anfa_whatsapp_crm_db
+    # config.py requires DATABASE_URL_PRIMARY / DATABASE_URL_REPLICA
+    # specifically (not "DATABASE_URL") - both are required fields with
+    # no default, so the app fails Settings validation without these.
+    # There is no physical read replica in this docker-compose setup, so
+    # both point at the same primary Postgres instance for now.
+    - DATABASE_URL_PRIMARY=postgresql+asyncpg://anfa_admin_user:${DB_PASSWORD}@postgres:5432/anfa_whatsapp_crm_db
+    - DATABASE_URL_REPLICA=postgresql+asyncpg://anfa_admin_user:${DB_PASSWORD}@postgres:5432/anfa_whatsapp_crm_db
     - REDIS_HOST=redis
     - REDIS_PORT=6379
     - REDIS_PASSWORD=${REDIS_PASSWORD}
+    - ENCRYPTION_MASTER_KEY=${ENCRYPTION_MASTER_KEY}
+    - ADMIN_USERNAME=${ADMIN_USERNAME}
+    - ADMIN_PASSWORD=${ADMIN_PASSWORD}
     networks:
     - anfa-internal-net
     healthcheck:
@@ -192,6 +201,21 @@ services:
   frontend:
     build:
       context: ./frontend
+      args:
+      # NEXT_PUBLIC_* vars are inlined at build time - they MUST be passed
+      # here (build.args), not just under environment: below, or Next.js
+      # never sees them and silently falls back to its hardcoded defaults.
+      # H8 Fix: Empty string = use relative paths through nginx (same origin).
+      # The browser cannot resolve 'backend:4000' (Docker-internal hostname).
+      # nginx proxies /api/* to the backend container, so relative paths work correctly.
+      # For production with a real domain, set this to: https://your-domain.com
+      NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-}"
+      # Must match ADMIN_USERNAME / ADMIN_PASSWORD below (used by the
+      # frontend to obtain a JWT via POST /api/settings/token - see
+      # frontend/src/lib/api-client.ts). Stopgap until a real login page
+      # exists; do not use this pattern for multi-user setups.
+      NEXT_PUBLIC_ADMIN_USERNAME: "${ADMIN_USERNAME}"
+      NEXT_PUBLIC_ADMIN_PASSWORD: "${ADMIN_PASSWORD}"
     container_name: anfa-nextjs-ui
     restart: unless-stopped
     security_opt:
@@ -202,10 +226,6 @@ services:
     env_file:
     - .env
     environment:
-    # H8 Fix: Empty string = use relative paths through nginx (same origin).
-    # The browser cannot resolve 'backend:4000' (Docker-internal hostname).
-    # nginx proxies /api/* to the backend container, so relative paths work correctly.
-    # For production with a real domain, set this to: https://your-domain.com
     - NEXT_PUBLIC_API_URL=
     networks:
     - anfa-internal-net
