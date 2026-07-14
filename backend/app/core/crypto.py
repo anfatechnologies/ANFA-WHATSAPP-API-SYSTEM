@@ -13,11 +13,11 @@ from app.core.config import settings
 # via the ENCRYPTION_KEY environment variable (Base64 encoded 32 bytes).
 # Contributors can manage their own KMS keys by securely providing this env var.
 
-class EncryptionService:
-    def __init__(self):
+class CryptoService:
+    def __init__(self, master_key: str | None = None):
         # Security: Use the validated application settings instead of os.getenv
         # Removes hardcoded development fallbacks that could leak to production
-        key_bytes = settings.ENCRYPTION_MASTER_KEY.encode('utf-8')[:32]
+        key_bytes = (master_key or settings.ENCRYPTION_MASTER_KEY).encode('utf-8')[:32]
         if len(key_bytes) < 32:
             # Pad key to 32 bytes (256 bits) if misconfigured
             key_bytes = key_bytes.ljust(32, b'\0')
@@ -44,4 +44,21 @@ class EncryptionService:
             # Return original if decryption fails (e.g. for already plain text legacy messages)
             return encrypted_data
 
-crypto_service = EncryptionService()
+    def reencrypt(self, token: str, new_key: str) -> str:
+        """Decrypt with the current key and re-encrypt with new_key.
+        
+        Used by the key-rotation endpoint to migrate all encrypted data to a new master key.
+        Raises ValueError if the token cannot be decrypted with the current key
+        (which would indicate corrupted/already-rotated data).
+        """
+        plaintext = self.decrypt(token)
+        new_service = CryptoService(master_key=new_key)
+        return new_service.encrypt(plaintext)
+
+
+# Module-level singleton — import and use directly:
+#   from app.core.crypto import crypto_service
+crypto_service = CryptoService()
+
+# Backward-compatible alias (some imports may use EncryptionService)
+EncryptionService = CryptoService

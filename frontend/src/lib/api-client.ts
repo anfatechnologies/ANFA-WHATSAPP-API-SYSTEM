@@ -1,6 +1,10 @@
 import axios from 'axios';
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// H4 Fix: Backend runs on port 4000 (per backend/Dockerfile), not 8000.
+// In Docker Compose, NEXT_PUBLIC_API_URL is set to "" (empty string) so all
+// API calls go through nginx as relative /api/* paths on the same origin.
+// For local development without Docker, use http://localhost:4000.
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 /**
  * NOTE on auth: this project currently uses a single "zero-configuration"

@@ -59,6 +59,10 @@ class SettingsService:
                 "default_reply_message": sys_settings.default_reply_message,
                 "data_retention_days": sys_settings.data_retention_days,
                 "enable_logging": sys_settings.enable_logging,
+                # Appearance fields (Part 3)
+                "theme_mode": getattr(sys_settings, "theme_mode", "dark"),
+                "language": getattr(sys_settings, "language", "en"),
+                "notification_sound_enabled": getattr(sys_settings, "notification_sound_enabled", True),
             }
             await redis_client.publish("settings:updates", json.dumps(safe_payload))
         except Exception as e:

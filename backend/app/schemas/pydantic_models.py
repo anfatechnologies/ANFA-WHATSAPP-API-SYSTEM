@@ -347,8 +347,8 @@ class PhoneNumberConfigResponse(PhoneNumberConfigBase):
 # SETTINGS SCHEMAS
 # =============================================================================
 
-class SystemSettings(BaseModel):
-    """Schema for system-wide settings stored in Redis."""
+class SystemSettingsLegacy(BaseModel):
+    """DEPRECATED: Old schema that did not match DB fields. Kept for reference only."""
     model_config = ConfigDict(from_attributes=True)
     
     default_agent_role: AgentRoleSchema = Field(default=AgentRoleSchema.AGENT)
@@ -361,6 +361,40 @@ class SystemSettings(BaseModel):
     enable_ml_features: bool = Field(default=False)
 
 
+class SystemSettingsResponse(BaseModel):
+    """H1/H5 Fix: Schema that actually matches the SystemSettings DB model fields.
+    
+    Used for GET /settings/ responses so the frontend receives real DB values
+    instead of Pydantic defaults from a mismatched schema.
+    """
+    model_config = ConfigDict(from_attributes=True)
+
+    # Category 1: Meta Business Configuration
+    whatsapp_business_account_id: Optional[str] = None
+    phone_number_id: Optional[str] = None
+    # Secrets are never returned — presence is indicated by has_* booleans
+    has_permanent_access_token: bool = False
+    has_app_secret: bool = False
+
+    # Category 2: Automation & Workflow
+    n8n_webhook_url: Optional[str] = None
+    auto_reply_enabled: bool = False
+    default_reply_message: Optional[str] = None
+
+    # Category 3: System & Privacy
+    data_retention_days: int = 90
+    enable_logging: bool = True
+
+    # Category 4: Appearance / UI Preferences (Part 3 — new fields)
+    theme_mode: str = Field(default="dark", description="UI theme: 'light' | 'dark' | 'system'")
+    language: str = Field(default="en", description="UI language code (e.g. 'en', 'ur', 'ar')")
+    notification_sound_enabled: bool = Field(default=True, description="Play sound on new messages")
+
+
+# Backward compat alias — old code that imported SystemSettings for settings responses
+# should migrate to SystemSettingsResponse
+SystemSettings = SystemSettingsResponse
+
 class MetaCredentialsSettings(BaseModel):
     """Schema for Meta API credentials stored in Redis."""
     model_config = ConfigDict(from_attributes=True)
@@ -370,6 +404,36 @@ class MetaCredentialsSettings(BaseModel):
     app_secret: str = Field(..., min_length=16)
     access_token: Optional[str] = Field(default=None)
 
+
+class RotateKeyRequest(BaseModel):
+    """Request body for POST /settings/rotate-encryption-key.
+    
+    The confirm flag must be explicitly set to true to prevent accidental
+    rotations — this is a destructive operation if done incorrectly.
+    """
+    confirm: bool = Field(
+        ...,
+        description="Must be explicitly set to true. Prevents accidental key rotations."
+    )
+
+
+class RotateKeyResponse(BaseModel):
+    """Response from POST /settings/rotate-encryption-key.
+    
+    CRITICAL SECURITY WARNING: The new_master_key field in the response must be
+    immediately saved to your .env file as ENCRYPTION_MASTER_KEY and all containers
+    restarted. If the response is lost before updating .env, the encrypted data
+    will become permanently unreadable after the next container restart.
+    """
+    status: str
+    new_master_key: str = Field(
+        description="NEW ENCRYPTION_MASTER_KEY value. Update .env immediately and restart all containers."
+    )
+    rows_reencrypted: int
+    warning: str = (
+        "CRITICAL: Save new_master_key to .env as ENCRYPTION_MASTER_KEY and restart all containers "
+        "before they are restarted for any other reason. Data will be unreadable if this step is skipped."
+    )
 
 # =============================================================================
 # REAL-TIME EVENT SCHEMAS

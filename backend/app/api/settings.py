@@ -17,13 +17,15 @@ from sse_starlette.sse import EventSourceResponse
 import asyncio
 from app.core.security import verify_access_token, encrypt_redis_secret, decrypt_redis_secret, verify_admin, create_access_token, decode_jwt_token
 from app.schemas.pydantic_models import (
-    SystemSettings,
+    SystemSettingsResponse,
     MetaCredentialsSettings,
     PhoneNumberConfigCreate,
     PhoneNumberConfigResponse,
     PhoneNumberConfigUpdate,
+    RotateKeyRequest,
+    RotateKeyResponse,
 )
-from app.models.schema import PhoneNumberConfig, AuditLog
+from app.models.schema import PhoneNumberConfig, AuditLog, SystemSettings as SystemSettingsModel
 from sqlalchemy import select
 from datetime import timedelta
 from jose import jwt, JWTError
@@ -59,7 +61,7 @@ async def login_for_access_token(admin: dict = Depends(verify_admin)):
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
-@router.get("/", response_model=SystemSettings)
+@router.get("/", response_model=SystemSettingsResponse)
 async def get_settings_dashboard(
     token_payload: dict = Depends(verify_access_token),
     db: AsyncSession = Depends(get_db)
@@ -67,16 +69,24 @@ async def get_settings_dashboard(
     """Retrieve all configuration variables required for the Settings Dashboard."""
     sys_settings = await SettingsService.get_settings(db)
     
-    # Do not return encrypted secrets in plain text over the API
-    return SystemSettings(
+    # H1/H5 Fix: Use SystemSettingsResponse which actually mirrors the DB model fields.
+    # The old SystemSettings Pydantic schema had completely different fields
+    # (default_agent_role, auto_assign_sessions, etc.) causing DB values to be silently dropped.
+    return SystemSettingsResponse(
         whatsapp_business_account_id=sys_settings.whatsapp_business_account_id,
         phone_number_id=sys_settings.phone_number_id,
+        # Never return raw secrets — indicate presence with booleans
+        has_permanent_access_token=bool(sys_settings.permanent_access_token),
+        has_app_secret=bool(sys_settings.app_secret),
         n8n_webhook_url=sys_settings.n8n_webhook_url,
         auto_reply_enabled=sys_settings.auto_reply_enabled,
         default_reply_message=sys_settings.default_reply_message,
         data_retention_days=sys_settings.data_retention_days,
         enable_logging=sys_settings.enable_logging,
-        # We don't return the raw secrets here, we could mask them if needed
+        # Category 4: Appearance fields
+        theme_mode=getattr(sys_settings, 'theme_mode', 'dark'),
+        language=getattr(sys_settings, 'language', 'en'),
+        notification_sound_enabled=getattr(sys_settings, 'notification_sound_enabled', True),
     )
 
 @router.get("/live")
@@ -133,6 +143,28 @@ async def update_settings_dashboard(
             updates["app_secret"] = api_config["appSecret"]
         if "accessToken" in api_config and api_config["accessToken"]:
             updates["permanent_access_token"] = api_config["accessToken"]
+        
+        # M2 Fix: Sync credentials to Redis so the webhook fast-path picks them up
+        # immediately without needing to call /meta-credentials separately.
+        # Requires phone_number_id to be known (either from this update or from DB).
+        sync_phone_id = api_config.get("appId") or (
+            (await SettingsService.get_settings(db)).phone_number_id
+        )
+        if sync_phone_id and ("appSecret" in api_config or "accessToken" in api_config):
+            redis_client = await _get_redis()
+            try:
+                prefix = f"settings:meta_credentials:{sync_phone_id}"
+                pipeline = redis_client.pipeline()
+                if "appSecret" in api_config and api_config["appSecret"]:
+                    pipeline.set(f"{prefix}:app_secret", encrypt_redis_secret(api_config["appSecret"]))
+                if "accessToken" in api_config and api_config["accessToken"]:
+                    pipeline.set(f"{prefix}:access_token", encrypt_redis_secret(api_config["accessToken"]))
+                await pipeline.execute()
+                logger.info(f"M2: Synced credentials to Redis for phone_number_id={sync_phone_id}")
+            except Exception as e:
+                logger.error(f"M2: Failed to sync credentials to Redis: {e}")
+            finally:
+                await redis_client.close()
     
     # 2. Automation
     if "automation" in payload:
@@ -161,8 +193,24 @@ async def update_settings_dashboard(
                 logger.warning("ARQ pool unavailable — cleanup_old_messages not enqueued")
         if "enable_logging" in privacy:
             updates["enable_logging"] = privacy["enable_logging"]
+
+    # 4. Appearance (Part 3 — new)
+    if "appearance" in payload:
+        appearance = payload["appearance"]
+        if "theme_mode" in appearance:
+            allowed_themes = {"light", "dark", "system"}
+            if appearance["theme_mode"] not in allowed_themes:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"theme_mode must be one of: {allowed_themes}"
+                )
+            updates["theme_mode"] = appearance["theme_mode"]
+        if "language" in appearance:
+            updates["language"] = str(appearance["language"])[:10]  # cap at 10 chars
+        if "notification_sound_enabled" in appearance:
+            updates["notification_sound_enabled"] = bool(appearance["notification_sound_enabled"])
             
-    # 4. Admin Credentials (H2)
+    # 5. Admin Credentials (H2)
     if "admin_credentials" in payload:
         # Admin credentials are stored in the environment / .env file.
         # Dynamic runtime updates require an Admin DB table with hashed passwords.
@@ -190,8 +238,108 @@ async def update_settings_dashboard(
     return {"status": "success", "message": "Settings updated"}
 
 
+# =============================================================================
+# ENCRYPTION KEY ROTATION (Part 3 — new endpoint)
+# =============================================================================
 
+@router.post("/rotate-encryption-key", response_model=RotateKeyResponse)
+async def rotate_encryption_key(
+    body: RotateKeyRequest,
+    token_payload: dict = Depends(verify_access_token),
+    db: AsyncSession = Depends(get_db),
+):
+    """Rotate the AES-256-GCM encryption master key.
 
+    Generates a new random 32-byte key, re-encrypts ALL currently encrypted
+    DB fields (SystemSettings.permanent_access_token, app_secret) using the
+    new key, then returns the new key for the operator to save in .env.
+
+    Security:
+    - Requires a valid JWT (verify_access_token)
+    - Requires body.confirm == True as an explicit safeguard
+    - DB re-encryption is performed inside a single transaction; if any row
+      fails the entire operation is rolled back, preventing mixed-key state.
+
+    IMPORTANT: After this call succeeds, the operator MUST:
+    1. Copy the new_master_key value from the response
+    2. Update ENCRYPTION_MASTER_KEY in .env
+    3. Restart all containers
+    If step 2-3 are not completed, the next container start will use the OLD
+    key and ALL encrypted data will become unreadable.
+    """
+    if not body.confirm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="confirm must be true to proceed with key rotation."
+        )
+
+    import secrets as secrets_module
+    from app.core.crypto import CryptoService
+
+    # Generate a new 256-bit (32-byte) random key, hex-encoded for .env compatibility
+    new_key_bytes = secrets_module.token_bytes(32)
+    new_key_hex = new_key_bytes.hex()  # 64-char hex string, exactly 32 UTF-8 bytes in ENCRYPTION_MASTER_KEY
+    new_key_str = new_key_hex  # Store as hex so it's printable + pasteable into .env
+
+    old_crypto = CryptoService()  # uses current settings.ENCRYPTION_MASTER_KEY
+    rows_reencrypted = 0
+
+    try:
+        # --- Re-encrypt SystemSettings encrypted columns ---
+        result = await db.execute(select(SystemSettingsModel))
+        sys_settings = result.scalar_one_or_none()
+        if sys_settings:
+            if sys_settings.permanent_access_token:
+                sys_settings.permanent_access_token = old_crypto.reencrypt(
+                    sys_settings.permanent_access_token, new_key_str
+                )
+                rows_reencrypted += 1
+            if sys_settings.app_secret:
+                sys_settings.app_secret = old_crypto.reencrypt(
+                    sys_settings.app_secret, new_key_str
+                )
+                rows_reencrypted += 1
+
+        # --- Re-encrypt PhoneNumberConfig encrypted columns ---
+        pnc_result = await db.execute(select(PhoneNumberConfig))
+        phone_configs = pnc_result.scalars().all()
+        for pnc in phone_configs:
+            if pnc.access_token:
+                pnc.access_token = old_crypto.reencrypt(pnc.access_token, new_key_str)
+                rows_reencrypted += 1
+            if pnc.app_secret:
+                pnc.app_secret = old_crypto.reencrypt(pnc.app_secret, new_key_str)
+                rows_reencrypted += 1
+
+        # Commit atomically — all-or-nothing
+        await db.commit()
+        logger.warning(
+            f"Encryption key rotated successfully. {rows_reencrypted} encrypted fields re-encrypted. "
+            "Operator must update ENCRYPTION_MASTER_KEY in .env and restart containers."
+        )
+
+        # Audit the rotation
+        audit = AuditLog(
+            action="encryption_key_rotation",
+            resource_type="system",
+            details={"rows_reencrypted": rows_reencrypted}
+        )
+        db.add(audit)
+        await db.commit()
+
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Key rotation failed, rolled back: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Key rotation failed and was fully rolled back: {str(e)}"
+        )
+
+    return RotateKeyResponse(
+        status="rotated",
+        new_master_key=new_key_str,
+        rows_reencrypted=rows_reencrypted,
+    )
 
 # =============================================================================
 # META CREDENTIALS MANAGEMENT

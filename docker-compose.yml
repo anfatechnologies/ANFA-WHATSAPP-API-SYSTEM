@@ -52,8 +52,8 @@ services:
       test:
       - CMD
       - redis-cli
-      - --raw
-      - incr
+      - -a
+      - ${REDIS_PASSWORD}
       - ping
       interval: 10s
       timeout: 5s
@@ -126,10 +126,19 @@ services:
     env_file:
     - .env
     environment:
-    - DATABASE_URL=postgresql+asyncpg://anfa_admin_user:${DB_PASSWORD}@postgres:5432/anfa_whatsapp_crm_db
+    # C1/C4 Fix: Workers need the same required env vars as the backend.
+    # config.py requires DATABASE_URL_PRIMARY + DATABASE_URL_REPLICA (not DATABASE_URL).
+    # SECRET_KEY, ENCRYPTION_MASTER_KEY, ADMIN_USERNAME, ADMIN_PASSWORD are all
+    # required Fields with no default — missing them causes an immediate ValidationError crash.
+    - DATABASE_URL_PRIMARY=postgresql+asyncpg://anfa_admin_user:${DB_PASSWORD}@postgres:5432/anfa_whatsapp_crm_db
+    - DATABASE_URL_REPLICA=postgresql+asyncpg://anfa_admin_user:${DB_PASSWORD}@postgres:5432/anfa_whatsapp_crm_db
     - REDIS_HOST=redis
     - REDIS_PORT=6379
     - REDIS_PASSWORD=${REDIS_PASSWORD}
+    - SECRET_KEY=${SECRET_KEY}
+    - ENCRYPTION_MASTER_KEY=${ENCRYPTION_MASTER_KEY}
+    - ADMIN_USERNAME=${ADMIN_USERNAME}
+    - ADMIN_PASSWORD=${ADMIN_PASSWORD}
     networks:
     - anfa-internal-net
     deploy:
@@ -159,10 +168,16 @@ services:
     env_file:
     - .env
     environment:
-    - DATABASE_URL=postgresql+asyncpg://anfa_admin_user:${DB_PASSWORD}@postgres:5432/anfa_whatsapp_crm_db
+    # C1/C4 Fix: Same required env vars as inbound_worker above.
+    - DATABASE_URL_PRIMARY=postgresql+asyncpg://anfa_admin_user:${DB_PASSWORD}@postgres:5432/anfa_whatsapp_crm_db
+    - DATABASE_URL_REPLICA=postgresql+asyncpg://anfa_admin_user:${DB_PASSWORD}@postgres:5432/anfa_whatsapp_crm_db
     - REDIS_HOST=redis
     - REDIS_PORT=6379
     - REDIS_PASSWORD=${REDIS_PASSWORD}
+    - SECRET_KEY=${SECRET_KEY}
+    - ENCRYPTION_MASTER_KEY=${ENCRYPTION_MASTER_KEY}
+    - ADMIN_USERNAME=${ADMIN_USERNAME}
+    - ADMIN_PASSWORD=${ADMIN_PASSWORD}
     networks:
     - anfa-internal-net
     deploy:

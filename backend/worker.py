@@ -16,7 +16,6 @@ from app.schemas.pydantic_models import (
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.services.object_storage import ObjectStorageService
-from app.core.crypto import crypto_service
 from app.services.settings_service import SettingsService
 from app.workers.outbound import send_text_message_task
 import redis.asyncio as redis
@@ -133,16 +132,9 @@ async def _upsert_contact(db, wa_id: str, display_name: str = None) -> Contact:
     result = await db.execute(stmt)
     contact = result.scalar_one()
 
-    # Ensure a ChatSession exists for this contact (also safe for concurrent calls)
-    session_stmt = (
-        pg_insert(ChatSession)
-        .values(
-            contact_id=contact.id,
-            status=SessionStatusSchema.PENDING,
-        )
-        .on_conflict_do_nothing(index_elements=["contact_id"])  # Assumes unique index on contact_id for open sessions
-    )
-    await db.execute(session_stmt)
+    # NOTE: We do NOT use INSERT ... ON CONFLICT here because there is no unique
+    # constraint on chat_sessions.contact_id (a contact can have multiple closed sessions).
+    # The active-session lookup happens in _process_incoming_message instead.
     await db.flush()
 
     return contact
@@ -228,11 +220,14 @@ async def _process_incoming_message(
         sender_type=MessageSenderTypeSchema.CONTACT,
         sender_id=contact.id,
         message_id=message_id,
-        # DATA SOVEREIGNTY: Encrypt sensitive message contents at rest
-        body=crypto_service.encrypt(body) if body else None,
+        # DATA SOVEREIGNTY: body and media_caption are typed as EncryptedText in schema.py.
+        # The SQLAlchemy TypeDecorator automatically applies AES-256-GCM encryption on
+        # process_bind_param (DB write) and decryption on process_result_value (DB read).
+        # Do NOT pre-encrypt here — that would cause double-encryption.
+        body=body,
         media_url=media_url,
         media_type=media_type,
-        media_caption=crypto_service.encrypt(media_caption) if media_caption else None,
+        media_caption=media_caption,
         status=MessageStatusSchema.PROCESSED,
     )
     db.add(message)

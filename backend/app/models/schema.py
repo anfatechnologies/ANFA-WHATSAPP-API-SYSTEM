@@ -503,6 +503,14 @@ class SystemSettings(Base):
     data_retention_days: Mapped[int] = mapped_column(Integer, default=90, nullable=False)
     enable_logging: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
+    # Category 4: Appearance / UI Preferences (Part 3 — new fields)
+    # theme_mode: applied to <html> class on the frontend for real dark/light toggling
+    theme_mode: Mapped[str] = mapped_column(String(10), default="dark", nullable=False)
+    # language: stored for i18n stub (see frontend ThemeProvider for usage)
+    language: Mapped[str] = mapped_column(String(10), default="en", nullable=False)
+    # notification_sound_enabled: gates audio playback on new message events
+    notification_sound_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
     updated_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True),
         default=datetime.datetime.now(datetime.timezone.utc),
