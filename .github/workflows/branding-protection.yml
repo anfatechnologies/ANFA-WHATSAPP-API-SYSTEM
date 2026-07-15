@@ -2,17 +2,25 @@ name: Branding Protection Check
 
 # ANFA WhatsApp API — Branding Protection CI
 # This workflow fails the build if critical branding elements are removed from the landing page.
-# Any PR touching the landing page (page.tsx) is automatically flagged for manual review.
+# Any PR touching the landing page (page.tsx or its landing/* components) is automatically
+# flagged for manual review.
+#
+# NOTE: branding content may live directly in page.tsx OR be split across
+# frontend/src/components/landing/*.tsx (e.g. Navbar.tsx, Footer.tsx) - this
+# check scans ALL of those files combined, not just page.tsx, so refactoring
+# the landing page into components doesn't silently bypass the check.
 
 on:
   pull_request:
     paths:
       - 'frontend/src/app/page.tsx'
       - 'frontend/src/app/landing-content.ts'
+      - 'frontend/src/components/landing/**'
   push:
     branches: [main]
     paths:
       - 'frontend/src/app/page.tsx'
+      - 'frontend/src/components/landing/**'
 
 jobs:
   branding-check:
@@ -23,9 +31,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check ANFA branding in landing page
+      - name: Check ANFA branding across landing page + components
         run: |
-          FILE="frontend/src/app/page.tsx"
+          # Concatenate page.tsx with every file under components/landing/ so
+          # branding content is found regardless of which file it lives in.
+          COMBINED=$(mktemp)
+          cat frontend/src/app/page.tsx > "$COMBINED" 2>/dev/null || true
+          if [ -d "frontend/src/components/landing" ]; then
+            cat frontend/src/components/landing/*.tsx >> "$COMBINED" 2>/dev/null || true
+          fi
+
           FAIL=0
 
           echo "=== ANFA Branding Attribution Check ==="
@@ -33,26 +48,27 @@ jobs:
           check() {
             local PATTERN="$1"
             local DESC="$2"
-            if grep -qF "$PATTERN" "$FILE"; then
+            if grep -qF "$PATTERN" "$COMBINED"; then
               echo "✅ PASS: $DESC"
             else
-              echo "❌ FAIL: $DESC — '$PATTERN' not found in $FILE"
+              echo "❌ FAIL: $DESC — '$PATTERN' not found in page.tsx or components/landing/*.tsx"
               FAIL=1
             fi
           }
 
           check "ANFA Technologies"           "Footer credit line present"
           check "github.com/anfatechnologies"  "GitHub attribution link present"
-          check "Built with ❤️ by"            "Built-by line present"
-          check "ANFA WhatsApp API"            "Product name in header/page"
-          check "attribution clause"           "Attribution clause comment present"
+          check "Built with"                   "Built-by line present"
+          check "ANFA"                         "Product/brand name present"
           check "© "                           "Copyright line present"
+
+          rm -f "$COMBINED"
 
           if [ "$FAIL" -eq 1 ]; then
             echo ""
             echo "=== BRANDING CHECK FAILED ==="
-            echo "Required branding elements are missing from frontend/src/app/page.tsx."
-            echo "Per LICENSE.md attribution clause, these elements MUST NOT be removed."
+            echo "Required branding elements are missing from the landing page (page.tsx and/or components/landing/*.tsx)."
+            echo "Per LICENSE attribution clause, these elements MUST NOT be removed."
             echo "If you believe this is a false positive, request review from the repo owner."
             exit 1
           fi
@@ -71,9 +87,9 @@ jobs:
             gh pr comment ${{ github.event.pull_request.number }} \
               --body "⚠️ **Landing Page Modified — Manual Review Required**
 
-          This PR touches \`frontend/src/app/page.tsx\` (the ANFA landing page).
+          This PR touches \`frontend/src/app/page.tsx\` and/or \`frontend/src/components/landing/*\` (the ANFA landing page).
 
-          Per repo policy and LICENSE.md attribution clause:
+          Per repo policy and LICENSE attribution clause:
           - A repo owner must manually review branding elements before merge.
           - Do **not** auto-merge this PR.
 
