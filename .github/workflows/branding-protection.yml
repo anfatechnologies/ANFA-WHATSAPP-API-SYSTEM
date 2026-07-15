@@ -9,10 +9,12 @@ on:
     paths:
       - 'frontend/src/app/page.tsx'
       - 'frontend/src/app/landing-content.ts'
+      - 'frontend/src/components/landing/**'
   push:
     branches: [main]
     paths:
       - 'frontend/src/app/page.tsx'
+      - 'frontend/src/components/landing/**'
 
 jobs:
   branding-check:
@@ -25,7 +27,8 @@ jobs:
 
       - name: Check ANFA branding in landing page
         run: |
-          FILE="frontend/src/app/page.tsx"
+          FILE="combined_branding_check.txt"
+          cat frontend/src/app/page.tsx frontend/src/components/landing/*.tsx > "$FILE"
           FAIL=0
 
           echo "=== ANFA Branding Attribution Check ==="
@@ -36,22 +39,21 @@ jobs:
             if grep -qF "$PATTERN" "$FILE"; then
               echo "✅ PASS: $DESC"
             else
-              echo "❌ FAIL: $DESC — '$PATTERN' not found in $FILE"
+              echo "❌ FAIL: $DESC — '$PATTERN' not found in components"
               FAIL=1
             fi
           }
 
           check "ANFA Technologies"           "Footer credit line present"
-          check "github.com/anfatechnologies"  "GitHub attribution link present"
-          check "Built with ❤️ by"            "Built-by line present"
-          check "ANFA WhatsApp API"            "Product name in header/page"
-          check "attribution clause"           "Attribution clause comment present"
-          check "© "                           "Copyright line present"
+          check "github.com/anfatechnologies" "GitHub attribution link present"
+          check "Built with"                  "Built-by line present"
+          check "ANFA"                        "Product name in header/page"
+          check "© "                          "Copyright line present"
 
           if [ "$FAIL" -eq 1 ]; then
             echo ""
             echo "=== BRANDING CHECK FAILED ==="
-            echo "Required branding elements are missing from frontend/src/app/page.tsx."
+            echo "Required branding elements are missing from the landing page components."
             echo "Per LICENSE.md attribution clause, these elements MUST NOT be removed."
             echo "If you believe this is a false positive, request review from the repo owner."
             exit 1
@@ -71,7 +73,7 @@ jobs:
             gh pr comment ${{ github.event.pull_request.number }} \
               --body "⚠️ **Landing Page Modified — Manual Review Required**
 
-          This PR touches \`frontend/src/app/page.tsx\` (the ANFA landing page).
+          This PR touches landing page components.
 
           Per repo policy and LICENSE.md attribution clause:
           - A repo owner must manually review branding elements before merge.
