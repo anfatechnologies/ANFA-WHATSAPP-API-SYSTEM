@@ -67,13 +67,6 @@ class Settings(BaseSettings):
     WHATSAPP_ACCESS_TOKEN: Optional[str] = Field(default=None)
     WHATSAPP_APP_SECRET: Optional[str] = Field(default=None)
     WHATSAPP_VERIFY_TOKEN: Optional[str] = Field(default=None)
-    
-    # =============================================================================
-    # TUNELAB ML INTEGRATION
-    # =============================================================================
-    ATHENA_ML_ENABLE_SERVER_SIDE_CHECKPOINT_PATH_OVERRIDE: bool = Field(default=False)
-    TUNELAB_API_ENDPOINT: Optional[str] = Field(default=None)
-    TUNELAB_API_KEY: Optional[str] = Field(default=None)
 
     # =============================================================================
     # N8N AUTOMATION INTEGRATION
