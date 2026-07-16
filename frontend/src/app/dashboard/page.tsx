@@ -8,6 +8,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import useSWR from 'swr';
 import { useSSE, MessageEventData } from '@/hooks/useSSE';
+import { useSettings } from '@/hooks/use-settings';
+import { playNotificationSound } from '@/lib/notification-sound';
 import { formatDistanceToNow } from 'date-fns';
 
 const fetcher = (url: string) => fetch(url).then(res => res.json());
@@ -87,6 +89,7 @@ function ConnectionIndicator({ connected }: { connected: boolean }) {
 export default function DashboardPage() {
   // SSE connection for real-time messages
   const { messages: sseMessages, connection, disconnect, reconnect } = useSSE('/api/chats/stream');
+  const { data: settingsData } = useSettings();
   
   // Fetch live sessions
   const { data: rawSessions } = useSWR('/api/chats/sessions', fetcher, { refreshInterval: 5000 });
@@ -141,9 +144,16 @@ export default function DashboardPage() {
           created_at: latestEvent.payload.timestamp || new Date().toISOString(),
         };
         setChatMessages(prev => [...prev, newMessage]);
+
+        // notification_sound_enabled setting wired to a real sound - defaults
+        // to on (true) if settings haven't loaded yet, matching the backend's
+        // default. See frontend/src/lib/notification-sound.ts.
+        if (settingsData?.notification_sound_enabled ?? true) {
+          playNotificationSound();
+        }
       }
     }
-  }, [sseMessages]);
+  }, [sseMessages, settingsData]);
   
   // Auto-scroll to bottom on new messages
   useEffect(() => {

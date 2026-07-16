@@ -16,6 +16,10 @@ export interface SettingsData {
   
   data_retention_days?: number;
   enable_logging?: boolean;
+
+  theme_mode?: 'light' | 'dark' | 'system';
+  language?: string;
+  notification_sound_enabled?: boolean;
 }
 
 export interface SettingsUpdatePayload {
@@ -37,6 +41,11 @@ export interface SettingsUpdatePayload {
   privacy?: {
     data_retention_days?: number;
     enable_logging?: boolean;
+  };
+  appearance?: {
+    theme_mode?: 'light' | 'dark' | 'system';
+    language?: string;
+    notification_sound_enabled?: boolean;
   };
 }
 

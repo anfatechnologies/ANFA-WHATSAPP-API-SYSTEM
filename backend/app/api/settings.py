@@ -225,14 +225,18 @@ async def update_settings_dashboard(
         )
 
     await SettingsService.update_settings(db, updates)
-    
-    # Audit Logging
-    audit = AuditLog(
-        action="settings_update",
-        resource_type="system_settings",
-        details={"updates_keys": list(updates.keys())}
-    )
-    db.add(audit)
+
+    # Audit Logging - gated on enable_logging (reflects the value *after*
+    # this update, so disabling logging takes effect starting with this
+    # very request; re-enabling it also takes effect immediately).
+    current_settings = await SettingsService.get_settings(db)
+    if getattr(current_settings, "enable_logging", True):
+        audit = AuditLog(
+            action="settings_update",
+            resource_type="system_settings",
+            details={"updates_keys": list(updates.keys())}
+        )
+        db.add(audit)
     await db.commit()
 
     return {"status": "success", "message": "Settings updated"}

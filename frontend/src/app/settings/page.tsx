@@ -15,19 +15,22 @@
  *  and persisted to the backend via PATCH /api/settings/update.
  *
  * Notification sound:
- *  notification_sound_enabled gates the Web Audio API beep played on new messages.
- *  NOTE: No notification sound system exists yet in the dashboard — this setting
- *  is stored and will gate future audio integration. It is NOT faked.
+ *  notification_sound_enabled gates a real Web Audio API chime played when a
+ *  new inbound message arrives via SSE (see frontend/src/lib/notification-sound.ts
+ *  and frontend/src/app/dashboard/page.tsx).
  *
  * i18n / language:
- *  language is stored in DB and returned on GET /api/settings/. A full i18n
- *  layer is NOT yet implemented. This is a stub — the setting saves and persists
- *  but does not yet switch any UI strings. Documented here explicitly per spec.
+ *  language is stored in DB and returned on GET /api/settings/. A minimal but
+ *  real translation layer (frontend/src/lib/i18n.ts) now translates this
+ *  page's tab labels and a set of common dashboard strings between English
+ *  and Urdu based on this setting. Coverage is not yet app-wide - extending
+ *  the TRANSLATIONS dictionary in i18n.ts adds more strings over time.
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { apiClient } from '@/lib/api-client';
 import { toast } from 'sonner';
+import { useTranslation } from '@/lib/i18n';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -165,6 +168,7 @@ function SaveButton({ saving, onClick }: { saving: boolean; onClick: () => void 
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<TabId>('api');
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [rotating, setRotating] = useState(false);
@@ -357,10 +361,10 @@ export default function SettingsPage() {
         {/* Tab Navigation */}
         <nav id="settings-tabs" className="flex gap-2 flex-wrap">
           {([
-            { id: 'api', label: '🔑 API Config' },
-            { id: 'automation', label: '⚡ Automation' },
-            { id: 'privacy', label: '🔒 Privacy' },
-            { id: 'appearance', label: '🎨 Appearance' },
+            { id: 'api', label: `🔑 ${t('api_config')}` },
+            { id: 'automation', label: `⚡ ${t('automation')}` },
+            { id: 'privacy', label: `🔒 ${t('privacy')}` },
+            { id: 'appearance', label: `🎨 ${t('appearance')}` },
           ] as { id: TabId; label: string }[]).map(({ id, label }) => (
             <TabButton key={id} id={id} label={label} active={activeTab === id} onClick={setActiveTab} />
           ))}
