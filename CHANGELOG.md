@@ -20,6 +20,10 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 - `FRONTEND_URL` setting for explicit CORS origin control in production
 - `CHANGELOG.md` — this file
 
+### Changed
+- Refactored landing page into modular components (`Navbar`, `HeroSection`, `Footer`, `3D`) for better maintainability
+- Updated GitHub Actions branding protection workflow to scan all landing components instead of just `page.tsx`
+
 ### Fixed
 - **P0 Bug**: Health check endpoints `/api/health` and `/api/ready` referenced non-existent `_engine` — now correctly use `db_manager.primary_engine`
 - **P1 Bug**: CORS `allow_origins=[]` in production blocked all frontend requests — now uses `FRONTEND_URL` env var

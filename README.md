@@ -294,7 +294,7 @@ npm run build       # full production build check
 Issues and pull requests are welcome. A few things to keep in mind:
 
 - Before opening a PR, please actually run the app (`docker compose up --build`) and confirm it starts cleanly, plus run the test commands above — a PR that "looks correct" but hasn't been executed has caused real regressions in this project before.
-- The landing page (`frontend/src/app/page.tsx`) and its branding elements are protected by a CI check (`.github/workflows/branding-protection.yml`) — see `LICENSE` for the attribution requirement.
+- The landing page components (`frontend/src/app/page.tsx` and `frontend/src/components/landing/*`) and their branding elements are protected by a CI check (`.github/workflows/branding-protection.yml`) — see `LICENSE` for the attribution requirement.
 - If you're adding a new Settings field, make sure it's wired all the way through: DB column → API schema → endpoint handling → frontend form → frontend request payload → actually consumed by a worker/endpoint at runtime. A setting that only gets saved to the database but is never read anywhere is not considered done.
 
 ---
